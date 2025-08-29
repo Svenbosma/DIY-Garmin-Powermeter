@@ -90,8 +90,10 @@ A single-sided crank-based cycling power meter built around the **Seeed XIAO nRF
 ## Getting started
 
 1. Flash the Arduino sketch onto the XIAO nRF52840 Sense.
-2. Pair with your bike computer or Zwift. It should show up as a standard **power + cadence sensor**.
-3. Ride 🚴‍♂️.
+2. Connect all the modules together
+3. Fit enclosure inside the crank
+4. Pair with your bike computer or Zwift. It should show up as a standard **power + cadence sensor**.
+5. Ride 🚴‍♂️.
 
 ---
 
