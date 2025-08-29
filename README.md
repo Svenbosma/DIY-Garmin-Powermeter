@@ -23,6 +23,7 @@ A single-sided crank-based cycling power meter built around the **Seeed XIAO nRF
 
   * Tiny, low-power, has BLE built in.
   * Includes a 6-axis IMU perfect for cadence detection.
+  * Has built-in lithium cell charger (really slow but hey, its tiny)
 * **HX711 load cell amplifier**
 
   * Cheap, easy to use, widely supported.
