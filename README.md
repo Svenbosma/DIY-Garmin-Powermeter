@@ -1,8 +1,19 @@
----
-
 # DIY Cycling Power Meter
 
 A single-sided crank-based cycling power meter built around the **Seeed XIAO nRF52840 Sense**, a set of **strain gauges**, and the classic **HX711 load cell amplifier**. Cadence is measured using the onboard 6-axis IMU (gyro), and everything is transmitted over Bluetooth using the official **Cycling Power Profile (CPP)** so that bike computers and apps (Garmin, Wahoo, Zwift, etc.) recognize it as a real power meter.
+
+---
+
+## Hardware Overview
+
+| Component | Image |
+|-----------|-------|
+| Seeed XIAO nRF52840 Sense | ![xiao](images/xiao.png) |
+| HX711 Load Cell Amplifier | ![hx711](images/hx711.png) |
+| Foil Strain Gauges | ![gauges](images/strain_gauges.png) |
+| Shimano GRX Right Crank (example) | ![crank](images/crank.png) |
+| 18650 Li-ion Battery | ![18650](images/18650.png) |
+| Weatherproof Magnetic Charger | ![connector](images/connector.png) |
 
 ---
 
@@ -24,16 +35,25 @@ A single-sided crank-based cycling power meter built around the **Seeed XIAO nRF
   * Tiny, low-power, has BLE built in.
   * Includes a 6-axis IMU perfect for cadence detection.
   * Has built-in lithium cell charger (really slow but hey, its tiny)
+
 * **HX711 load cell amplifier**
 
   * Cheap, easy to use, widely supported.
   * Commercial meters often use more advanced ADCs (TI ADS-series, custom ASICs), but HX711 works fine for DIY.
+
 * **Strain gauges**
 
   * Standard foil gauges arranged in a full Wheatstone bridge give best sensitivity and thermal stability.
+
 * **18650 battery**
 
   * High energy density, rechargeable, common in DIY.
+
+* **Weatherproof magnetic connector**
+
+  * Used for charging instead of USB-C.
+  * Safer for outdoor use (rain, mud).
+  * Prevents wear and tear on the tiny XIAO USB connector.
 
 ---
 
@@ -55,14 +75,17 @@ A single-sided crank-based cycling power meter built around the **Seeed XIAO nRF
   * Gyroscope outputs angular velocity in deg/s.
   * Smoothed with a simple low-pass filter.
   * Positive → negative → positive zero-crossing = one crank revolution.
+
 * **Power calculation**:
 
   * HX711 reads torque via strain gauges.
   * Multiplied by cadence (angular velocity) to get Watts (calibration required).
+
 * **BLE output**:
 
   * Implements Cycling Power Measurement characteristic (`0x2A63`).
   * Sends instantaneous power + cumulative crank revolutions + event time.
+
 * **Low power**:
 
   * After `SLEEP_TIMEOUT_MS` of inactivity → HX711 powers down, MCU enters System OFF.
@@ -87,19 +110,10 @@ A single-sided crank-based cycling power meter built around the **Seeed XIAO nRF
 
 ---
 
-## Getting started
-
-1. Flash the Arduino sketch onto the XIAO nRF52840 Sense.
-2. Connect all the modules together
-3. Fit enclosure inside the crank
-4. Pair with your bike computer or Zwift. It should show up as a standard **power + cadence sensor**.
-5. Ride 🚴‍♂️.
-
----
-
 ## Roadmap / ideas
 
 If the poject gets a lot of attenwtion (or if I get bored in the winter), I might try to implement these features
+
 * Add left-right balance (second crank).
 * Switch HX711 to ADS1232/ADS131M for higher resolution.
 * Add ANT+ broadcasting.
