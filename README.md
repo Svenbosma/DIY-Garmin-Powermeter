@@ -81,7 +81,7 @@ A single-sided crank-based cycling power meter built around the **Seeed XIAO nRF
 
 ## Limitations / notes
 
-* Single-sided (right crank only) → doubles value to estimate total power. This is good for approximately 95% of the people, 2 crank power meters offer more data (left right crank balance and +-4% more precision) that really only is necessary if you're training for the world top.
+* Single-sided (right crank only) → doubles value to estimate total power. This is good for approximately 95% of the people, dual side crank power meters offer more data (left right crank balance and +-4% more precision) that really only is necessary if you're training for the world top.
 * HX711 is not as precise as commercial solutions, but cheap and works well enough. Same story as above
 * Firmware currently uses a simple exponential moving average filter; better DSP could improve cadence stability.
 
