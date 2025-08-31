@@ -8,12 +8,12 @@ A single-sided crank-based cycling power meter built around the **Seeed XIAO nRF
 
 | Component | Image |
 |-----------|-------|
-| Seeed XIAO nRF52840 Sense | ![xiao](images/xiao.png) |
-| HX711 Load Cell Amplifier | ![hx711](images/hx711.png) |
-| Foil Strain Gauges | ![gauges](images/strain_gauges.png) |
-| Shimano GRX Right Crank (example) | ![crank](images/crank.png) |
-| 18650 Li-ion Battery | ![18650](images/18650.png) |
-| Weatherproof Magnetic Charger | ![connector](images/connector.png) |
+| Seeed XIAO nRF52840 Sense | <img src="images/xiao.png" width="180px"> |
+| HX711 Load Cell Amplifier | <img src="images/hx711.png" width="180px"> |
+| Foil Strain Gauges | <img src="images/strain_gauges.png" width="180px"> |
+| Shimano GRX Right Crank (example) | <img src="images/crank.png" width="180px"> |
+| 18650 Li-ion Battery | <img src="images/18650.png" width="180px"> |
+| Weatherproof Magnetic Charger | <img src="images/connector.png" width="180px"> |
 
 ---
 
