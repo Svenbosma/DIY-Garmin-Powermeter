@@ -23,7 +23,6 @@ A single-sided crank-based cycling power meter built around the **Seeed XIAO nRF
 * **Cadence detection** using the onboard LSM6DS3 gyro (no magnets).
 * **Bluetooth Low Energy (BLE)** Cycling Power Profile (standardized).
 * **Auto sleep / wake-on-motion**: goes into µA standby when idle, wakes when you touch the pedals.
-* **Configurable inactivity timeout** (default 5s for testing, 60s recommended in use).
 * Runs from a single **18650 Li-ion cell** for months.
 
 ---
