@@ -111,7 +111,7 @@ A single-sided crank-based cycling power meter built around the **Seeed XIAO nRF
 
 ## Roadmap / ideas
 
-If the poject gets a lot of attenwtion (or if I get bored in the winter), I might try to implement these features
+If the poject gets a lot of attention (or if I get bored in the winter), I might try to implement these features
 
 * Add left-right balance (second crank).
 * Switch HX711 to ADS1232/ADS131M for higher resolution.
