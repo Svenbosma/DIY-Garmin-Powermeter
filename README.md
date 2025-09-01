@@ -8,12 +8,12 @@ A single-sided crank-based cycling power meter built around the **Seeed XIAO nRF
 
 | Component | Image |
 |-----------|-------|
-| Seeed XIAO nRF52840 Sense | ![xiao](images/xiao.png) |
-| HX711 Load Cell Amplifier | ![hx711](images/hx711.png) |
-| Foil Strain Gauges | ![gauges](images/strain_gauges.png) |
-| Shimano GRX Right Crank (example) | ![crank](images/crank.png) |
-| 18650 Li-ion Battery | ![18650](images/18650.png) |
-| Weatherproof Magnetic Charger | ![connector](images/connector.png) |
+| Seeed XIAO nRF52840 Sense | <img src="images/xiao.png" width="180px"> |
+| HX711 Load Cell Amplifier | <img src="images/hx711.png" width="180px"> |
+| Foil Strain Gauges | <img src="images/strain_gauges.png" width="180px"> |
+| Shimano GRX Right Crank (example) | <img src="images/crank.png" width="180px"> |
+| 18650 Li-ion Battery | <img src="images/18650.png" width="180px"> |
+| Weatherproof Magnetic Charger | <img src="images/connector.png" width="180px"> |
 
 ---
 
@@ -23,7 +23,6 @@ A single-sided crank-based cycling power meter built around the **Seeed XIAO nRF
 * **Cadence detection** using the onboard LSM6DS3 gyro (no magnets).
 * **Bluetooth Low Energy (BLE)** Cycling Power Profile (standardized).
 * **Auto sleep / wake-on-motion**: goes into µA standby when idle, wakes when you touch the pedals.
-* **Configurable inactivity timeout** (default 5s for testing, 60s recommended in use).
 * Runs from a single **18650 Li-ion cell** for months.
 
 ---
@@ -112,7 +111,7 @@ A single-sided crank-based cycling power meter built around the **Seeed XIAO nRF
 
 ## Roadmap / ideas
 
-If the poject gets a lot of attenwtion (or if I get bored in the winter), I might try to implement these features
+If the poject gets a lot of attention (or if I get bored in the winter), I might try to implement these features
 
 * Add left-right balance (second crank).
 * Switch HX711 to ADS1232/ADS131M for higher resolution.
