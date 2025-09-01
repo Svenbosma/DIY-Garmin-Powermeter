@@ -85,14 +85,14 @@ A single-sided crank-based cycling power meter built around the **Seeed XIAO nRF
 
 * **BLE output**:
 
-  * Implements Cycling Power Measurement characteristic (`0x2A63`).
+  * Implements Cycling Power Measurement characteristic.
   * Sends instantaneous power + cumulative crank revolutions + event time.
 
 * **Low power**:
 
   * Two levels of power saving:
-    * **Sleep mode (active riding):** MCU idles between HX711 interrupts (~80 Hz). Current consumption stays very low while still capturing every torque sample.
-    * **Deep sleep (no movement):** After configurable inactivity timeout, HX711 powers down, MCU enters System OFF, IMU stays in ultra-low-power motion detection (~10 µA). A pedal movement wakes the system and it restarts cleanly.
+    * **Sleep mode (during riding):** MCU sleeps between HX711 interrupts (~80 Hz). Current consumption stays very low, entire program runs on 80Hz.
+    * **Deep sleep (when idle):** After configurable inactivity timeout, HX711 powers down, MCU enters System OFF, IMU stays in ultra-low-power motion detection (~10 µA). A pedal movement wakes the system and it restarts cleanly.
 
 ---
 
