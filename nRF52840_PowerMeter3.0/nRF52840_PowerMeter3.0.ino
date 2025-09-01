@@ -252,24 +252,48 @@ void doTare() {
 }
 
 void runCalibration(float knownMassKg) {
-  Serial.println("Calibration start");
+  Serial.println("=== Calibration Start ===");
+
+  // Step 1: Tare (no load)
   doTare();
-  Serial.print("Hang "); Serial.print(knownMassKg); Serial.println(" kg on pedal now");
-  delay(2500);
+  Serial.println("Step 1: Tare complete.");
+
+  // Step 2: Ask user to hang weight
+  Serial.print("Step 2: Hang "); 
+  Serial.print(knownMassKg); 
+  Serial.println(" kg on pedal, then press any key in Serial Monitor.");
+
+  // Wait for user confirmation
+  while (!Serial.available()) {
+    delay(100);
+  }
+  while (Serial.available()) Serial.read(); // flush input
+
+  // Step 3: Take stable average with weight applied
+  Serial.println("Measuring loaded state...");
   long loadedAvg = averageCounts(CAL_SAMPLES, 5000);
-  long delta = loadedAvg - zeroOffsetCounts;
+
+  long deltaCounts = loadedAvg - zeroOffsetCounts;
+
   const float g = 9.80665f;
   float forceN = knownMassKg * g;
-  if (forceN <= 0.0f) {
-    Serial.println("Bad mass; abort");
+
+  if (forceN <= 0.0f || deltaCounts <= 0) {
+    Serial.println("Calibration failed: invalid force or counts");
     return;
   }
-  scaleFactor_counts_per_N = (float)delta / forceN;
-  Serial.print("deltaCounts="); Serial.println(delta);
-  Serial.print("forceN="); Serial.println(forceN, 6);
-  Serial.print("scaleFactor_counts_per_N="); Serial.println(scaleFactor_counts_per_N, 6);
-  Serial.println("Calibration done (active immediately)");
+
+  // Step 4: Compute scale factor
+  scaleFactor_counts_per_N = (float)deltaCounts / forceN;
+
+  // Debug output
+  Serial.print("deltaCounts = "); Serial.println(deltaCounts);
+  Serial.print("forceN = "); Serial.println(forceN, 6);
+  Serial.print("scaleFactor_counts_per_N = "); Serial.println(scaleFactor_counts_per_N, 6);
+
+  Serial.println("=== Calibration Done (active immediately) ===");
 }
+
 
 void processRevolution(float angVelRad) {
   float avgTorque = (torqueSampleCount > 0) ? (sumTorqueNm / (float)torqueSampleCount) : 0.0f;
@@ -295,7 +319,7 @@ void processRevolution(float angVelRad) {
 
 void sendCyclingPowerMeasurement(int16_t powerWatts) {
   // Flags: set bit1 = Crank Revolution Data Present (0x0002)
-  uint16_t flags = 0x0002;
+  uint16_t flags = 0x0008;
 
   uint8_t buf[8];
   int idx = 0;
