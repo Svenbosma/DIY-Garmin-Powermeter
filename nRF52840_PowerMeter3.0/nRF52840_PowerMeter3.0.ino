@@ -26,6 +26,11 @@
 #define TARE_SAMPLES        200
 #define CAL_SAMPLES         200
 #define GYRO_FORWARD_THRESHOLD 0.0f   // positive gx = forward
+#define LOW_BATT_THRESHOLD 20    // % at which LED_RED blinks
+#define NUM_BATT_SAMPLES 10      // ADC samples to average
+#define BATTERY_UPDATE_INTERVAL 6000UL // 6 seconds
+#define BLINK_INTERVAL 300       // ms
+#define NUM_BLINKS 3             // blinks per battery update
 
 // ---------- globals ----------
 HX711 scale;
@@ -41,20 +46,29 @@ unsigned long lastRevMs = 0;
 float sumTorqueNm = 0.0f;
 uint16_t torqueSampleCount = 0;
 
+unsigned long lastBattMs = 0;    // last battery update
+unsigned long lastBlinkMs = 0;   // timing for LED blink
+uint8_t battPercent = 100;       // current battery percentage
+uint8_t blinkCount = 0;          // blink count
+bool ledState = false;           // LED state
+
 // ---------- IMU ----------
 LSM6DS3 myIMU(I2C_MODE, 0x6A);
-float lastAccelX = 0.0f;
 bool prevAccelPositive = false;
 
 // ---------- BLE ----------
 BLEDis bledis;
 
-// Cycling Power Service
+// --- Cycling Power Service ---
 BLEService cyclingPowerService = BLEService(0x1818);
 BLECharacteristic cpMeasurementChar = BLECharacteristic(0x2A63);
 BLECharacteristic cpFeatureChar = BLECharacteristic(0x2A65);
 
-// NUS UART Service using BLEUart
+// ----- Battery Service -----
+BLEService batteryService = BLEService(0x180F);
+BLECharacteristic batteryLevelChar = BLECharacteristic(0x2A19);
+
+// -- NUS UART Service using BLEUart --
 BLEUart bleUart;
 
 // ---------- helper: log (mirrors Serial -> BLE UART when connected) ----------
@@ -87,23 +101,25 @@ void doTare();
 void runCalibration(float knownMassKg);
 void processRevolution(float angVelRad);
 void sendCyclingPowerMeasurement(int16_t powerWatts);
-void goToDeepSleep();
 void setupWakeOnMotion();
 void goToSystemOff();
 void handleUART();
 void processUARTCommand(String cmd);
 
 // ---------- HX711 ISR ----------
-void hx711ISR() { hx711ReadyFlag = true; }
+void hx711ISR() {hx711ReadyFlag = true;}
 
 // ---------- setup ----------
 void setup() {
   Serial.begin(115200);
-  while (!Serial);  // Wait for Serial to initialize
+  unsigned long start = millis();
+  while (!Serial && (millis() - start < 2000)) {}
   logPrintln("DIY Powermeter v3.1 start");
 
   Wire.begin();
 
+  nrf_gpio_cfg_output(13);   // P0.13
+  nrf_gpio_pin_clear(13);    // LOW = 100 mA
   pinMode(HX_SCK, OUTPUT); digitalWrite(HX_SCK, LOW);
   pinMode(HX_DT, INPUT_PULLUP);
   scale.begin(HX_DT, HX_SCK);
@@ -122,51 +138,53 @@ void setup() {
   logPrintln("Ready. Commands via UART: 'c'=calib, 't'=tare, 'm <kg>'=custom calib.");
 }
 
-// ---------- loop ----------
+// ---------- main loop ----------
 void loop() {
-  handleUART();  // BLE UART handling
+    handleUART();  // BLE UART handling
 
-  // Idle until HX711 ready
-  hx711ReadyFlag = false;
-  if (!hx711ReadyFlag) { __SEV(); __WFE(); }
+    // Process HX711 if ready
+    if (hx711ReadyFlag || scale.is_ready()) {
+        hx711ReadyFlag = false;
 
-  if (hx711ReadyFlag || scale.is_ready()) {
-    long raw = scale.read();
-    long net = raw - zeroOffsetCounts;
+        long raw = scale.read();
+        long net = raw - zeroOffsetCounts;
 
-    if (isfinite(scaleFactor_counts_per_N) && fabs(scaleFactor_counts_per_N) > 1e-6f) {
-      float forceN = (float)net / scaleFactor_counts_per_N;
-      float torqueNm = forceN * CRANK_LENGTH_M;
-      sumTorqueNm += torqueNm;
-      torqueSampleCount++;
+        if (isfinite(scaleFactor_counts_per_N) && fabs(scaleFactor_counts_per_N) > 1e-6f) {
+            float forceN = (float)net / scaleFactor_counts_per_N;
+            float torqueNm = forceN * CRANK_LENGTH_M;
+            sumTorqueNm += torqueNm;
+            torqueSampleCount++;
+        }
+
+        // Cadence detection (forward pedal only)
+        float ax = myIMU.readFloatAccelX();
+        float gx = myIMU.readFloatGyroX();
+        bool forwardPedal = (gx > GYRO_FORWARD_THRESHOLD);
+        bool accelPositive = (ax > ACCEL_THRESHOLD_G);
+
+        if (!prevAccelPositive && accelPositive && forwardPedal) {
+            logPrintln("Good job, you are spinning");
+            unsigned long now = millis();
+            float dt = (now - lastRevMs) / 1000.0f;
+            if (dt > 0.2f) {
+                cumulativeCrankRevs++;
+                lastCrankEventTime = (uint16_t)((now * 1024UL) / 1000UL);
+                float angVelRad = (2.0f * PI / dt);
+                processRevolution(angVelRad);
+                lastRevMs = now;
+            }
+        }
+        prevAccelPositive = accelPositive;
     }
 
-    // Cadence detection (forward only)
-    float ax = myIMU.readFloatAccelX();
-    float gx = myIMU.readFloatGyroX();
-    bool forwardPedal = (gx > GYRO_FORWARD_THRESHOLD);
-    bool accelPositive = (ax > ACCEL_THRESHOLD_G);
-
-    if (!prevAccelPositive && accelPositive && forwardPedal) {
-      unsigned long now = millis();
-      float dt = (now - lastRevMs) / 1000.0f;
-      if (dt > 0.2f) { // ignore too short revs
-        cumulativeCrankRevs++;
-        lastCrankEventTime = (uint16_t)((now * 1024UL)/1000UL);
-        float angVelRad = (2.0f * PI / dt);
-        processRevolution(angVelRad);
-        lastRevMs = now;
-      }
+    // Deep sleep if no pedaling
+    if ((millis() - lastRevMs) > SLEEP_TIMEOUT_MS) {
+        logPrintln("No pedaling -> deep sleep");
+        goToSystemOff();
     }
-    prevAccelPositive = accelPositive;
-  }
-  /*
-  if ((millis() - lastRevMs) > SLEEP_TIMEOUT_MS) {
-    logPrintln("No pedaling -> deep sleep");
-    delay(50);
-    goToSystemOff();
-  }
-  */
+
+    // Battery check and LED blink
+    batteryCheckAndLED();
 }
 
 // ---------- BLE ----------
@@ -182,7 +200,6 @@ void setupBLE() {
 
   // ----- Cycling Power Service -----
   cyclingPowerService.begin();
-
   cpMeasurementChar.setProperties(CHR_PROPS_NOTIFY);
   cpMeasurementChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
   cpMeasurementChar.setFixedLen(8);
@@ -195,16 +212,74 @@ void setupBLE() {
   uint32_t features = 0;
   cpFeatureChar.write(&features, sizeof(features));
 
+  // ----- Battery Service -----
+  batteryService.begin();
+  batteryLevelChar.setProperties(CHR_PROPS_READ | CHR_PROPS_NOTIFY);
+  batteryLevelChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+  batteryLevelChar.setFixedLen(1);
+  batteryLevelChar.begin();
+  uint8_t initialBatt = 100;
+  batteryLevelChar.write8(initialBatt);
+
   // ----- NUS UART -----
-  bleUart.begin();   // BLEUart handles Notify + Write automatically
+  bleUart.begin();
 
   // ----- Advertising -----
   Bluefruit.Advertising.addService(cyclingPowerService);
+  Bluefruit.Advertising.addService(batteryService);
   Bluefruit.Advertising.addService(bleUart);
   Bluefruit.Advertising.addName();
   Bluefruit.Advertising.start();
 
-  logPrintln("BLE advertising started (Cycling Power + UART ready)");
+  logPrintln("BLE advertising started (Cycling Power + UART + Battery ready)");
+}
+
+// --- Low battery voltage handler ----
+void batteryCheckAndLED() {
+  unsigned long now = millis();
+
+  // 1. Check if 60s passed to read battery
+  if (now - lastBattMs >= BATTERY_UPDATE_INTERVAL) {
+    lastBattMs = now;
+    battPercent = readBatteryPercent();
+    batteryLevelChar.notify8(battPercent);
+    logPrint("Battery: "); logPrintln(battPercent);
+
+    blinkCount = 0;     // reset blink for this update
+    ledState = false;
+    digitalWrite(LED_RED, HIGH); // LED off
+    lastBlinkMs = now;
+  }
+
+  // 2. Handle low battery LED blink non-blocking (active-low)
+  if (battPercent <= LOW_BATT_THRESHOLD && blinkCount < NUM_BLINKS) {
+    if (now - lastBlinkMs >= BLINK_INTERVAL) {
+      lastBlinkMs = now;
+      ledState = !ledState;
+      digitalWrite(LED_RED, ledState ? LOW : HIGH); // invert: LOW=on, HIGH=off
+
+      if (!ledState) blinkCount++; // count only after LED goes off
+    }
+  } else if (battPercent > LOW_BATT_THRESHOLD) {
+    // Ensure LED is off if battery is okay
+    digitalWrite(LED_RED, HIGH); // off
+  }
+}
+
+// ---- Read battery percentage ----
+uint8_t readBatteryPercent() {
+  float vbatSum = 0.0f;
+  for (int i = 0; i < NUM_BATT_SAMPLES; i++) {
+    int raw = analogRead(PIN_VBAT);
+    float voltage = raw * (3.6f / 1023.0f); // adjust if 12-bit ADC
+    vbatSum += voltage;
+  }
+  float vbatAvg = vbatSum / NUM_BATT_SAMPLES;
+
+  int percent = (int)((vbatAvg - 3.0f) * 100.0f / (4.2f - 3.0f));
+  if (percent > 100) percent = 100;
+  if (percent < 0) percent = 0;
+  return percent;
 }
 
 // ---------- UART Handling ----------
@@ -215,6 +290,7 @@ void handleUART() {
   }
 }
 
+// ---- one of many uart handlers ----
 void processUARTCommand(String cmd) {
   cmd.trim();
   logPrint("UART command received: "); logPrintln(cmd);
@@ -240,6 +316,34 @@ long averageCounts(int n, unsigned long timeoutMs) {
   return (k>0) ? (sum/k) : 0L;
 }
 
+// ---- UART input handler (without delay) ----
+bool waitForInput(String &cmd, unsigned long timeoutMs = 30000) {
+    unsigned long start = millis();
+    cmd = "";
+
+    while ((millis() - start) < timeoutMs) {
+        // Check USB Serial
+        if (Serial.available()) {
+            cmd = Serial.readStringUntil('\n');
+            cmd.trim();
+            return true;
+        }
+
+        // Check BLE UART
+        if (bleUart.available()) {
+            cmd = bleUart.readStringUntil('\n');
+            cmd.trim();
+            return true;
+        }
+
+        // Small delay to prevent busy loop
+        delay(10);
+    }
+
+    return false; // timeout
+}
+
+// ---- Tare ----
 void doTare() {
   logPrintln("Tare: remove load from pedal");
   delay(1000);
@@ -247,14 +351,18 @@ void doTare() {
   logPrint("zeroOffsetCounts = "); logPrintln(String(zeroOffsetCounts));
 }
 
+// --- Run calibration of wheatstone bridge ---
 void runCalibration(float knownMassKg) {
   logPrintln("=== Calibration Start ===");
   doTare();
   logPrintln("Step 1: Tare complete.");
   logPrint("Step 2: Hang "); logPrint(String(knownMassKg)); logPrintln(" kg and press any key...");
 
-  while (!Serial.available()) delay(100);
-  while (Serial.available()) Serial.read();
+    String dummy;
+    if (!waitForInput(dummy, 120000)) { // wait max 60s
+        logPrintln("No input received, aborting...");
+        return;
+    }
 
   long loadedAvg = averageCounts(CAL_SAMPLES, 5000);
   long deltaCounts = loadedAvg - zeroOffsetCounts;
@@ -283,6 +391,7 @@ void processRevolution(float angVelRad) {
   sendCyclingPowerMeasurement((int16_t)powerW);
 }
 
+// ---- BLE Cycling power service handler ----
 void sendCyclingPowerMeasurement(int16_t powerWatts) {
   uint8_t buf[8] = {0};
   buf[0] = 0b00000100; // flags: crank revolution data present
@@ -296,7 +405,7 @@ void sendCyclingPowerMeasurement(int16_t powerWatts) {
   cpMeasurementChar.notify(buf, 8);
 }
 
-// ---------- SYSTEMOFF / Wake-on-motion ----------
+// ------ SYSTEMOFF / Wake-on-motion -------
 void setupWakeOnMotion() {
   // 416Hz, ±2g
   myIMU.writeRegister(LSM6DS3_ACC_GYRO_CTRL1_XL, 0x60);
@@ -307,11 +416,16 @@ void setupWakeOnMotion() {
   myIMU.writeRegister(LSM6DS3_ACC_GYRO_MD1_CFG, 0x20);
 }
 
+// ------ Go to sleep -------
 void goToSystemOff() {
   digitalWrite(HX_SCK, HIGH);      // HX711 sleep
 
   pinMode(LED_BLUE, OUTPUT);
   digitalWrite(LED_BLUE, HIGH);
+  pinMode(LED_RED, OUTPUT);
+  digitalWrite(LED_RED, HIGH);
+  pinMode(LED_GREEN, OUTPUT);
+  digitalWrite(LED_GREEN, HIGH);
 
   setupWakeOnMotion();
 
