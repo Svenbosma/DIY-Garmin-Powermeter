@@ -1,54 +1,54 @@
-// BLE
-BLEDis bledis;
-BLEService cyclingPowerService = BLEService(0x1818);
-BLECharacteristic cpMeasurementChar = BLECharacteristic(0x2A63);
-BLECharacteristic cpFeatureChar = BLECharacteristic(0x2A65);
-BLEService batteryService = BLEService(0x180F);
-BLECharacteristic batteryLevelChar = BLECharacteristic(0x2A19);
-BLEUart bleUart;
+// --- BLE Services & Characteristics ---
+BLEService cyclingPowerService("1818"); // Cycling Power Service
+BLECharacteristic cpMeasurementChar("2A63", BLERead | BLENotify, 8);  // Cycling Power Measurement
+BLECharacteristic cpFeatureChar("2A65", BLERead, 4);                  // Cycling Power Feature
+
+BLEService batteryService("180F"); // Battery Service
+BLECharacteristic batteryLevelChar("2A19", BLERead | BLENotify, 1);   // Battery Level
+
+// (Optional replacement for Bluefruit UART)
+BLEService uartService("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
+BLECharacteristic uartTXChar("6E400003-B5A3-F393-E0A9-E50E24DCCA9E", BLENotify, 20);
+BLECharacteristic uartRXChar("6E400002-B5A3-F393-E0A9-E50E24DCCA9E", BLEWrite, 20);
 
 void setupBLE() {
-  Bluefruit.begin();
-  Bluefruit.setTxPower(4);
-  Bluefruit.setName("DIY-Powermeter");
+  if (!BLE.begin()) {
+    Serial.println("Starting BLE failed!");
+    while (1);
+  }
 
-  bledis.setManufacturer("DIY");
-  bledis.setModel("Powermeter");
-  bledis.begin();
+  BLE.setDeviceName("DIY-Powermeter");
+  BLE.setLocalName("DIY-Powermeter");
+  BLE.setAdvertisedService(cyclingPowerService);
 
-  cyclingPowerService.begin();
-  cpMeasurementChar.setProperties(CHR_PROPS_NOTIFY);
-  cpMeasurementChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-  cpMeasurementChar.setFixedLen(8);
-  cpMeasurementChar.begin();
+  // --- Cycling Power Service ---
+  cyclingPowerService.addCharacteristic(cpMeasurementChar);
+  cyclingPowerService.addCharacteristic(cpFeatureChar);
+  BLE.addService(cyclingPowerService);
 
-  cpFeatureChar.setProperties(CHR_PROPS_READ);
-  cpFeatureChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-  cpFeatureChar.setFixedLen(4);
-  cpFeatureChar.begin();
   uint32_t features = 0;
-  cpFeatureChar.write(&features, sizeof(features));
+  cpFeatureChar.writeValue((uint8_t*)&features, sizeof(features));
 
-  batteryService.begin();
-  batteryLevelChar.setProperties(CHR_PROPS_READ | CHR_PROPS_NOTIFY);
-  batteryLevelChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-  batteryLevelChar.setFixedLen(1);
-  batteryLevelChar.begin();
+  // --- Battery Service ---
+  batteryService.addCharacteristic(batteryLevelChar);
+  BLE.addService(batteryService);
+
   uint8_t initialBatt = 100;
-  batteryLevelChar.write8(initialBatt);
+  batteryLevelChar.writeValue(initialBatt);
 
-  bleUart.begin();
+  // --- UART Service (optional) ---
+  uartService.addCharacteristic(uartTXChar);
+  uartService.addCharacteristic(uartRXChar);
+  BLE.addService(uartService);
 
-  Bluefruit.Advertising.addService(cyclingPowerService);
-  Bluefruit.Advertising.addService(batteryService);
-  Bluefruit.Advertising.addService(bleUart);
-  Bluefruit.Advertising.addName();
-  Bluefruit.Advertising.start();
+  // Start advertising
+  BLE.advertise();
 
-  logPrintln("BLE advertising started (Cycling Power + UART + Battery ready)");
+  Serial.println("BLE advertising started (Cycling Power + UART + Battery ready)");
 }
 
-void sendCyclingPowerMeasurement(int16_t powerWatts) {
+// --- Send Cycling Power Measurement ---
+void sendCyclingPowerMeasurement(int16_t powerWatts, uint16_t cumulativeCrankRevs, uint16_t lastCrankEventTime) {
   uint8_t buf[8] = {0};
   buf[0] = 0x20; buf[1] = 0x00;
   buf[2] = powerWatts & 0xFF;
@@ -57,5 +57,6 @@ void sendCyclingPowerMeasurement(int16_t powerWatts) {
   buf[5] = (cumulativeCrankRevs >> 8) & 0xFF;
   buf[6] = lastCrankEventTime & 0xFF;
   buf[7] = (lastCrankEventTime >> 8) & 0xFF;
-  cpMeasurementChar.notify(buf, sizeof(buf));
+
+  cpMeasurementChar.writeValue(buf, sizeof(buf)); // automatically notifies if subscribed
 }

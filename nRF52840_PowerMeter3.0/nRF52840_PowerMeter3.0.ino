@@ -6,8 +6,8 @@
   - Wake-on-motion to exit SYSTEMOFF (using double tap)
 */
 
-#include <bluefruit.h>
-#include <Adafruit_TinyUSB.h>
+#include <ArduinoBLE.h>
+//#include <Adafruit_TinyUSB.h>
 #include <Arduino.h>
 #include <Wire.h>
 #include "HX711.h"

@@ -16,19 +16,25 @@ uint8_t readBatteryPercent() {
 void batteryCheckAndLED() {
   unsigned long now = millis();
 
+  // Periodic battery update
   if (now - lastBattMs >= BATTERY_UPDATE_INTERVAL) {
     lastBattMs = now;
     battPercent = readBatteryPercent();
-    batteryLevelChar.write8(battPercent);
-    batteryLevelChar.notify8(battPercent);
-    logPrint("Battery: "); logPrintln(battPercent);
 
+    // Update BLE battery characteristic (auto-notifies if subscribed)
+    batteryLevelChar.writeValue(battPercent);
+
+    logPrint("Battery: ");
+    logPrintln(String(battPercent));
+
+    // Reset blink pattern
     blinkCount = 0;
     ledState = false;
     digitalWrite(LED_RED, HIGH);
     lastBlinkMs = now;
   }
 
+  // Blink LED if battery is low
   if (battPercent <= LOW_BATT_THRESHOLD && blinkCount < NUM_BLINKS) {
     if (now - lastBlinkMs >= BLINK_INTERVAL) {
       lastBlinkMs = now;
@@ -36,7 +42,9 @@ void batteryCheckAndLED() {
       digitalWrite(LED_RED, ledState ? LOW : HIGH);
       if (!ledState) blinkCount++;
     }
-  } else if (battPercent > LOW_BATT_THRESHOLD) {
+  } 
+  else if (battPercent > LOW_BATT_THRESHOLD) {
     digitalWrite(LED_RED, HIGH);
   }
 }
+
