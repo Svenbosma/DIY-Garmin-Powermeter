@@ -1,5 +1,9 @@
 void hx711ISR() { hx711ReadyFlag = true; }
 
+float calcPower(float torqueNm, float angVelRad) {
+  return torqueNm * angVelRad;
+}
+
 long averageCounts(int n, unsigned long timeoutMs) {
   long sum = 0; int k=0;
   unsigned long t0 = millis();
