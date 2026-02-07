@@ -6,13 +6,14 @@
   - Wake-on-motion to exit SYSTEMOFF (using double tap)
 */
 
-#include <ArduinoBLE.h>
-//#include <Adafruit_TinyUSB.h>
+#include <bluefruit.h>
 #include <Arduino.h>
 #include <Wire.h>
 #include "HX711.h"
-#include "LSM6DS3.h"
+#include <LSM6DS3.h>
 #include "nrf_gpio.h"
+#include <nrf_sdm.h>
+
 
 // ---------- config ----------
 #define CRANK_LENGTH_M      0.1725f
@@ -23,9 +24,10 @@
 #define GYRO_FORWARD_THRESHOLD 0.0f
 #define LOW_BATT_THRESHOLD 20
 #define NUM_BATT_SAMPLES 10
-#define BATTERY_UPDATE_INTERVAL 6000UL
+#define BATTERY_UPDATE_INTERVAL 12000UL
 #define BLINK_INTERVAL 300
 #define NUM_BLINKS 3
+#define FIFO_WATERMARK 30   // bytes (~5 gyro samples)
 
 // ---------- pins ----------
 #define HX_DT           2
@@ -41,16 +43,19 @@ bool ledState = false;
 
 // IMU
 LSM6DS3 myIMU(I2C_MODE, 0x6A);
+volatile bool fifoIRQ = false;
+void imuISR() { fifoIRQ = true; }
 
 // Torque + IMU accumulators
 float sumTorqueNm = 0.0f;
 int torqueSampleCount = 0;
 int imuSampleCount = 0;
-float sumGyroX = 0.0f, sumAccelX = 0.0f;
+float sumGyroZ = 0.0f;
 unsigned long lastRevMs = 0;
 uint32_t cumulativeCrankRevs = 0;
 uint16_t lastCrankEventTime = 0;
 bool prevAccelPositive = false;
+volatile bool imuFifoReady = false;
 
 // HX711
 HX711 scale;
@@ -60,14 +65,19 @@ volatile bool hx711ReadyFlag = false;
 
 // prototypes
 void hx711ISR();
+void imuISR();
+void processIMUFIFO();
+void configureIMUSettings();
+void setupIMUFIFO();
 void setupBLE();
 void doTare();
 void runCalibration(float knownMassKg);
-void sendCyclingPowerMeasurement(int16_t powerWatts);
-void handleUART();
+void sendCyclingPowerMeasurement(int16_t powerWatts,
+                                 uint16_t cumulativeCrankRevs,
+                                 uint16_t lastCrankEventTime);
 void goToSystemOff();
 void batteryCheckAndLED();
-void CadencePowerCalc();
+void CadencePowerCalc(unsigned long revolutionMs);
 float ReadGxFIFO();
 
 void logPrint(const String &msg);
@@ -83,6 +93,11 @@ void logPrintln(int v) { logPrintln(String(v)); }
 void logPrint(float v, int digits=2) { logPrint(String(v, digits)); }
 void logPrintln(float v, int digits=2) { logPrintln(String(v, digits)); }
 
+void cpControlPointWriteCallback(uint16_t conn_hdl,
+                                 BLECharacteristic* chr,
+                                 uint8_t* data,
+                                 uint16_t len);
+
 void setup() {
   // -- Peripheral and pin setup --
   Serial.begin(115200);
@@ -90,61 +105,44 @@ void setup() {
   while (!Serial && (millis() - start < 2000)) {}
   logPrintln("DIY Powermeter v3.1 start");
   Wire.begin();
+
+  // --- Battery pin setup ---
   analogReadResolution(12); 
+  analogReference(AR_INTERNAL_2_4);
+  pinMode(PIN_CHARGING_CURRENT, OUTPUT);
+  digitalWrite(PIN_CHARGING_CURRENT, LOW);
+  pinMode(VBAT_ENABLE, OUTPUT); 
+  digitalWrite(VBAT_ENABLE, LOW);
+  pinMode(PIN_VBAT, INPUT);
 
   // ---- HX711 setup ----
-  nrf_gpio_cfg_output(13);   // P0.13
-  nrf_gpio_pin_clear(13);    // LOW = 100 mA
   pinMode(HX_SCK, OUTPUT); digitalWrite(HX_SCK, LOW);
   pinMode(HX_DT, INPUT_PULLUP);
   scale.begin(HX_DT, HX_SCK);
   delay(75);
   attachInterrupt(digitalPinToInterrupt(HX_DT), hx711ISR, FALLING);
 
-/*  // ---- Imu setup ----
-  myIMU.settings.gyroEnabled = 1;
-  myIMU.settings.gyroRange = 2000;       // safe for up to ~1200 °/s
-  myIMU.settings.gyroSampleRate = 833;   // Hz
-  myIMU.settings.gyroBandWidth = 100;    // Hz low-pass filter
-  myIMU.settings.gyroFifoEnabled = 1;
-  myIMU.settings.gyroFifoDecimation = 1;
-  // Disable accel & temp & timestamp
-  myIMU.settings.accelEnabled = 0;
-  myIMU.settings.tempEnabled  = 0;
-  myIMU.settings.timestampEnabled = 0;
-  myIMU.settings.timestampFifoEnabled = 0;
-  //Non-basic mode settings
-  myIMU.settings.commMode = 1;
-  // FIFO settings
-  myIMU.settings.fifoThreshold = 0;     // not   used
-  myIMU.settings.fifoSampleRate = 800;  // match gyro ODR
-  myIMU.settings.fifoModeWord = 6;      // continuous mode*/
-  if (myIMU.begin() != 0) {
+  delay(1000);
+  logPrintln("Starting IMU...");
+  // Apply all sensor/FIFO settings before begin(), matching the working FIFO test.
+  configureIMUSettings();
+  int imuStatus = myIMU.begin();
+  logPrint("IMU begin result = ");
+  logPrintln(String(imuStatus));
+
+  if (imuStatus != 0) {
     logPrintln("IMU init failed!");
-    while(1);
+    while (1);
   }
-  //myIMU.fifoBegin();
-  //myIMU.fifoClear();
+  setupIMUFIFO();
 
   // ---- Startup routine ----
   setupBLE();
-  doTare();
   lastRevMs = millis();
   logPrintln("Ready. Commands via UART: 'c'=calib, 't'=tare, 'm <kg>'=custom calib.");
 }
 
 void loop() {
-  float hz = getAverageHz();
-  // Only print once per second when updated
-  static float lastHz = 0.0;
-  if (hz != lastHz) {
-    logPrint("Average Hz: ");
-    logPrintln(hz, 2);  // Two decimal precision
-    lastHz = hz;
-  }
-
-  handleUART();  // BLE UART handling
-
   // HX711
   if (hx711ReadyFlag) {
     hx711ReadyFlag = false;
@@ -157,17 +155,11 @@ void loop() {
       accumulateTorque(torqueNm);
     }
   }
-
+  
   // IMU
-  //  gx = ReadGxFIFO();
-  //logPrint(gx);
-  //logPrint(" Sampled vs normal ");
-  float gx = myIMU.readFloatGyroX();
-  //logPrintln(gx);
-  accumulateIMU(gx);
-
-  if (detectRevolution(gx)) {
-    CadencePowerCalc();
+  if (fifoIRQ) {
+    fifoIRQ = false;
+    drainFifoAvgGx();
   }
 
   if ((millis() - lastRevMs) > SLEEP_TIMEOUT_MS) {
@@ -176,24 +168,5 @@ void loop() {
   }
 
   batteryCheckAndLED();
-}
-
-// --- Global variables ---
-unsigned long lastTime = 0;
-unsigned long loopCount = 0;
-float avgHz = 0.0;
-
-float getAverageHz() {
-  loopCount++;  // Count each loop iteration
-
-  unsigned long now = millis();
-  unsigned long elapsed = now - lastTime;
-
-  if (elapsed >= 1000) {  // Every 1 second
-    avgHz = (float)loopCount * 1000.0 / (float)elapsed;  // Loops per second
-    loopCount = 0;
-    lastTime = now;
-  }
-
-  return avgHz;
+  sd_app_evt_wait();
 }

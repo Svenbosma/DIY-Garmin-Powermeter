@@ -1,0 +1,5 @@
+{
+    "configuration": "softdevice=s140v6,debug=l0",
+    "board": "Seeeduino:nrf52:xiaonRF52840SensePlus",
+    "sketch": "nRF52840_PowerMeter3\\nRF52840_PowerMeter3.ino"
+}
