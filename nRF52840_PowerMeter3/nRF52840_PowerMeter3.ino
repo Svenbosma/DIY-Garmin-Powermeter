@@ -27,7 +27,7 @@
 #define BATTERY_UPDATE_INTERVAL 12000UL
 #define BLINK_INTERVAL 300
 #define NUM_BLINKS 3
-#define FIFO_WATERMARK 30   // bytes (~5 gyro samples)
+#define FIFO_WATERMARK 100   // bytes (~5 gyro samples)
 
 // ---------- pins ----------
 #define HX_DT           2
