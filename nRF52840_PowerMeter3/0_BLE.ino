@@ -27,8 +27,9 @@ void setupBLE() {
   Bluefruit.setTxPower(8);
   Bluefruit.setName("DIY-Powermeter");
 
-  Bluefruit.Periph.setConnInterval(160, 320); // 200–400 ms
-  Bluefruit.Periph.setConnSupervisionTimeout(400);
+  Bluefruit.Periph.setConnInterval(320, 640); // 400-800 ms
+  Bluefruit.Periph.setConnSupervisionTimeout(4000);
+  Bluefruit.Periph.setConnSlaveLatency(4);
 
   // --- Cycling Power Service ---
   cyclingPowerService.begin();

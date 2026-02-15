@@ -1,6 +1,7 @@
 // Timestamp state persists across FIFO drain cycles.
 static bool gHasPrevTimestamp = false;
 static uint32_t gPrevTimestampTicks = 0;
+static bool firstRun = true;
 
 // ------------------------------------------------------------
 // IMU settings
@@ -10,8 +11,8 @@ void configureIMUSettings()
   //Over-ride default settings if desired
   myIMU.settings.gyroEnabled = 1;  //Can be 0 or 1
   myIMU.settings.gyroRange = 2000;   //Max deg/s.  Can be: 125, 245, 500, 1000, 2000
-  myIMU.settings.gyroSampleRate = 208;   //Hz.  Can be: 13, 26, 52, 104, 208, 416, 833, 1666
-  myIMU.settings.gyroBandWidth = 200;  //Hz.  Can be: 50, 100, 200, 400;
+  myIMU.settings.gyroSampleRate = 104;   //Hz.  Can be: 13, 26, 52, 104, 208, 416, 833, 1666
+  myIMU.settings.gyroBandWidth = 50;  //Hz.  Can be: 50, 100, 200, 400;
   myIMU.settings.gyroFifoEnabled = 1;  //Set to include gyro in FIFO
   myIMU.settings.gyroFifoDecimation = 1;  //set 1 for on /1
 
@@ -92,6 +93,9 @@ void drainFifoAvgGx()
   static float integratedDegZ = 0.0f;
   static float accumulatedDtSeconds = 0.0f;
   uint8_t nested = 0;
+  static bool Connected = false;
+  static unsigned long timeConnected = 0;
+  uint32_t status;
   
   // Drain FIFO until empty
   while ( ( myIMU.fifoGetStatus() & 0x1000 ) == 0 )
@@ -109,12 +113,14 @@ void drainFifoAvgGx()
     imuSampleCount++;
 
     unsigned long eventMs = millis();
+    static bool invalidData = true;
 
     if (gHasPrevTimestamp) {
       float dtSeconds = (fifoTimestamp - gPrevTimestampTicks) * 0.000025f;
       if ((dtSeconds > 0) and (dtSeconds < 0.5)){
         accumulatedDtSeconds += dtSeconds;
         integratedDegZ = gz * dtSeconds;
+        gPrevTimestampTicks = fifoTimestamp;
         if (detectRevolution(integratedDegZ)) {
           CadencePowerCalc(eventMs);
         }
@@ -122,7 +128,6 @@ void drainFifoAvgGx()
     } else {
       gHasPrevTimestamp = true;
     }
-    gPrevTimestampTicks = fifoTimestamp;
     samplesThisSecond++;
   }
 
