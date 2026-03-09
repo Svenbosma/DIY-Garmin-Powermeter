@@ -23,6 +23,7 @@ void configureIMUSettings()
   //Non-basic mode settings
   myIMU.settings.commMode = 1;
 
+/*
   myIMU.settings.timestampEnabled=1;    // 1: enable timestamp ; 0: disable timestamp
   myIMU.settings.timestampFifoEnabled=1;// 1: enable write timestamp into fifo ; 0: disable
   myIMU.settings.timestampResolution=1; // 1: Set timestamp resolution ; 0: 6.4ms  1: 25us  
@@ -31,7 +32,7 @@ void configureIMUSettings()
   myIMU.settings.fifoThreshold = FIFO_WATERMARK;  //Can be 0 to 4096 (16 bit bytes)
   myIMU.settings.fifoSampleRate = 50;  //Hz.  Can be: 10, 25, 50, 100, 200, 400, 800, 1600, 3300, 6600
   myIMU.settings.fifoModeWord = 6;  //FIFO mode.
-
+*/
 }
 
 // ------------------------------------------------------------
@@ -54,33 +55,73 @@ void setupIMUFIFO()
 
 
 // ------------------------------------------------------------
+// Integrate Y and Z
+// ------------------------------------------------------------
+float integrateYZ(float gyroY, float gyroZ)
+{
+    return sqrt(gyroY * gyroY + gyroZ * gyroZ);
+}
+
+
+// ------------------------------------------------------------
 // Angle + revolution detection
 // ------------------------------------------------------------
-bool detectRevolution(float integratedDegZ)
+bool detectRevolution(unsigned long sampleMillis, float degZ)
 {
   static float angle = 0.0f;
-  const float deadband = 0.01f;
+  static float gzFiltered = 0.0f;
+  static unsigned long lastMillis = 0;
+  static float deltaAngle = 0;
 
-  // Integrate angular rate into crank angle.
-  if (integratedDegZ >= deadband or integratedDegZ <= -deadband)
+  const float deadband = 0.01f;
+  const float alpha = 0.25f;
+
+  // Calculate delta time
+  unsigned long dt = (sampleMillis - lastMillis);
+  lastMillis = sampleMillis;
+
+  // Low pass filter
+  gzFiltered += alpha * (degZ - gzFiltered);
+
+  // Integrate angular rate into crank angle
+  float integratedDegZ = gzFiltered * (dt / 1000.0f);
+
+  if (fabs(integratedDegZ) >= deadband)
   {
-    angle += integratedDegZ;
+    deltaAngle = integratedDegZ;
+    angle += deltaAngle;
   }
 
   // Detect wrap-around and count revolutions
   if (angle >= 360.0f)
   {
-    angle -= 360.0f;
-    return true;
+      float overshoot = angle - 360.0f;
+      float fraction = (deltaAngle - overshoot) / deltaAngle;
+
+      float revolutionDt = dt * fraction;
+
+      revolutionTimestamp = sampleMillis - (dt - revolutionDt);
+
+      angle -= 360.0f;
+      return true;
   }
+
   if (angle <= -360.0f)
   {
-    angle += 360.0f;
-    return true;
+      float overshoot = angle + 360.0f;
+      float fraction = (deltaAngle - overshoot) / deltaAngle;
+
+      float revolutionDt = dt * fraction;
+
+      revolutionTimestamp = sampleMillis - (dt - revolutionDt);
+
+      angle += 360.0f;
+      return true;
   }
 
   return false;
 }
+
 
 // ------------------------------------------------------------
 // Drain FIFO completely
@@ -121,9 +162,9 @@ void drainFifoAvgGx()
         accumulatedDtSeconds += dtSeconds;
         integratedDegZ = gz * dtSeconds;
         gPrevTimestampTicks = fifoTimestamp;
-        if (detectRevolution(integratedDegZ)) {
-          CadencePowerCalc(eventMs);
-        }
+//        if (detectRevolution(integratedDegZ)) {
+//          CadencePowerCalc(eventMs);
+//        }
       }
     } else {
       gHasPrevTimestamp = true;

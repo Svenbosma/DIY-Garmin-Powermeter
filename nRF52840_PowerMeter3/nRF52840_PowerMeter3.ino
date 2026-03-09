@@ -2,8 +2,8 @@
   DIY Powermeter v3.2
   - HX711 interrupt-driven torque sensor
   - BLE Cycling Power Service + UART calibration/tare
-  - Cadence from BMI270/LSM6DS3: accel X zero-cross + gyro X sign
-  - Wake-on-motion to exit SYSTEMOFF (using double tap)
+  - Cadence from LSM6DS3: accel X zero-cross + gyro X sign
+  - Wake-on-motion to exit SYSTEMOFF
 */
 
 #include <bluefruit.h>
@@ -13,7 +13,16 @@
 #include <LSM6DS3.h>
 #include "nrf_gpio.h"
 #include <nrf_sdm.h>
+#include <Adafruit_LittleFS.h>
+#include <InternalFileSystem.h>
 
+using namespace Adafruit_LittleFS_Namespace;
+
+#define CAL_FILE   "/calibration.txt"
+#define TARE_FILE  "/tare.txt"
+
+File calFile(InternalFS);
+File tareFile(InternalFS);
 
 // ---------- config ----------
 #define CRANK_LENGTH_M      0.1725f
@@ -56,6 +65,8 @@ uint32_t cumulativeCrankRevs = 0;
 uint16_t lastCrankEventTime = 0;
 bool prevAccelPositive = false;
 volatile bool imuFifoReady = false;
+unsigned long revolutionTimestamp = 0;
+volatile bool calibrationActive = false;
 
 // HX711
 HX711 scale;
@@ -65,6 +76,7 @@ volatile bool hx711ReadyFlag = false;
 
 // prototypes
 void hx711ISR();
+float integrateYZ(float gyroY, float gyroZ);
 void imuISR();
 void processIMUFIFO();
 void configureIMUSettings();
@@ -79,6 +91,9 @@ void goToSystemOff();
 void batteryCheckAndLED();
 void CadencePowerCalc(unsigned long revolutionMs);
 float ReadGxFIFO();
+void loadFlashValues();
+void saveCalibration();
+void saveTare();
 
 void logPrint(const String &msg);
 void logPrintln(const String &msg);
@@ -125,7 +140,7 @@ void setup() {
   delay(1000);
   logPrintln("Starting IMU...");
   // Apply all sensor/FIFO settings before begin(), matching the working FIFO test.
-  configureIMUSettings();
+  //configureIMUSettings();
   int imuStatus = myIMU.begin();
   logPrint("IMU begin result = ");
   logPrintln(String(imuStatus));
@@ -134,9 +149,10 @@ void setup() {
     logPrintln("IMU init failed!");
     while (1);
   }
-  setupIMUFIFO();
+  //setupIMUFIFO();
 
   // ---- Startup routine ----
+  loadFlashValues();
   setupBLE();
   lastRevMs = millis();
   logPrintln("Ready. Commands via UART: 'c'=calib, 't'=tare, 'm <kg>'=custom calib.");
@@ -154,15 +170,21 @@ void loop() {
       float torqueNm = forceN * CRANK_LENGTH_M;
       accumulateTorque(torqueNm);
     }
+    float integratedyz = integrateYZ(myIMU.readFloatGyroY(), myIMU.readFloatGyroZ());
+    if (detectRevolution( millis(), integratedyz )) {
+      CadencePowerCalc(revolutionTimestamp);
+    }
   }
   
+  /*
   // IMU
   if (fifoIRQ) {
     fifoIRQ = false;
     drainFifoAvgGx();
   }
+  */
 
-  if ((millis() - lastRevMs) > SLEEP_TIMEOUT_MS) {
+  if ((millis() - lastRevMs) > SLEEP_TIMEOUT_MS && !calibrationActive) {
     logPrintln("No pedaling -> deep sleep");
     goToSystemOff();
   }

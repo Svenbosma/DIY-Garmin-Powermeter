@@ -41,11 +41,14 @@ void setupWakeUpInterrupt()
   myIMU.writeRegister(LSM6DS3_ACC_GYRO_WAKE_UP_THS, 0x02); // Set wake-up threshold
   myIMU.writeRegister(LSM6DS3_ACC_GYRO_TAP_CFG1, 0x80);    // Enable interrupts and apply slope filter; latch mode disabled
   myIMU.writeRegister(LSM6DS3_ACC_GYRO_CTRL1_XL, 0x70);    // Turn on the accelerometer
-                                                           // ODR_XL = 833 Hz, FS_XL = ±2 g
   delay(4);                                                // Delay time per application note
-  myIMU.writeRegister(LSM6DS3_ACC_GYRO_CTRL1_XL, 0xB0);    // ODR_XL = 1.6 Hz
+  myIMU.writeRegister(LSM6DS3_ACC_GYRO_CTRL1_XL, 0x20);    // ODR_XL = 26 Hz, FS_XL = ±2 g
   myIMU.writeRegister(LSM6DS3_ACC_GYRO_CTRL6_G, 0x10);     // High-performance operating mode disabled for accelerometer
   myIMU.writeRegister(LSM6DS3_ACC_GYRO_MD1_CFG, 0x20);     // Wake-up interrupt driven to INT1 pin
+
+  // Clear any pending wake source before arming GPIO sense.
+  uint8_t dummy;
+  myIMU.readRegister(&dummy, LSM6DS3_ACC_GYRO_WAKE_UP_SRC);
 
   // Set up the sense mechanism to generate the DETECT signal to wake from system_off
   // No need to attach a handler, if just waking with the GPIO input.
@@ -70,6 +73,10 @@ void goToSystemOff() {
   detachInterrupt(digitalPinToInterrupt(MOTION_INT_PIN));
   setupWakeUpInterrupt();
 
+  // Clear wake source again just before enabling level-sensitive GPIO wake.
+  uint8_t dummy;
+  myIMU.readRegister(&dummy, LSM6DS3_ACC_GYRO_WAKE_UP_SRC);
+  delay(10);
 
   pinMode(MOTION_INT_PIN, INPUT_PULLDOWN);
   delay(50);
@@ -82,5 +89,11 @@ void goToSystemOff() {
   delay(50);
 
   logPrintln("Entering SYSTEMOFF...");
-  NRF_POWER->SYSTEMOFF = 1;
+  uint8_t sd_en = 0;
+  (void) sd_softdevice_is_enabled(&sd_en);
+  if (sd_en) {
+    sd_power_system_off();
+  } else {
+    NRF_POWER->SYSTEMOFF = 1;
+  }
 }

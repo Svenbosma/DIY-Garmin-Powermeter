@@ -13,6 +13,7 @@ void uartRXWriteCallback(uint16_t conn_hdl,
     uartBuffer += (char)data[i];
   }
 
+  calibrationActive = true;
   // Process complete commands (newline terminated)
   int newlineIndex = uartBuffer.indexOf('\n');
   while (newlineIndex >= 0) {
@@ -21,6 +22,7 @@ void uartRXWriteCallback(uint16_t conn_hdl,
     processUARTCommand(cmd);
     newlineIndex = uartBuffer.indexOf('\n');
   }
+  calibrationActive = false;
 }
 
 // Command processing logic (unchanged except for compatibility)
@@ -36,43 +38,21 @@ void processUARTCommand(String cmd) {
     doTare();
   } 
   else if (cmd.startsWith("m")) {
-    float kg = cmd.substring(1).toFloat();
+    String massStr = cmd.substring(1);
+    massStr.trim();
+    float kg = massStr.toFloat();
     if (kg > 0.0f) {
       runCalibration(kg);
     } else {
       logPrintln("Usage: m <mass_kg>");
     }
   } 
+  else if (cmd.equalsIgnoreCase("dfu")) { 
+    NRF_POWER->GPREGRET = 0xA8; 
+    NVIC_SystemReset(); 
+    } 
   else {
     logPrint("Unknown UART command: "); 
     logPrintln(cmd);
   }
-}
-
-bool waitForInput(String &cmd, unsigned long timeoutMs = 30000) {
-  unsigned long start = millis();
-  cmd = "";
-
-  while ((millis() - start) < timeoutMs) {
-
-    // Serial input
-    if (Serial.available()) {
-      cmd = Serial.readStringUntil('\n');
-      cmd.trim();
-      return true;
-    }
-
-    // BLE UART input (from RX callback buffer)
-    int newlineIndex = uartBuffer.indexOf('\n');
-    if (newlineIndex >= 0) {
-      cmd = uartBuffer.substring(0, newlineIndex);
-      uartBuffer.remove(0, newlineIndex + 1);
-      cmd.trim();
-      return true;
-    }
-
-    delay(10);  // BLE stack runs in background
-  }
-
-  return false;
 }
