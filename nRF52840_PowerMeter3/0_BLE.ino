@@ -1,4 +1,4 @@
-// --- Cycling Power Service ---
+// BLE services exposed by the powermeter.
 BLEService cyclingPowerService = BLEService(0x1818);
 
 BLECharacteristic cpMeasurementChar = BLECharacteristic(0x2A63);
@@ -6,11 +6,10 @@ BLECharacteristic cpFeatureChar     = BLECharacteristic(0x2A65);
 BLECharacteristic cpControlPointChar = BLECharacteristic(0x2A66);
 
 
-// --- Battery Service ---
 BLEService batteryService = BLEService(0x180F);
 BLECharacteristic batteryLevelChar = BLECharacteristic(0x2A19);
 
-// --- UART Service (Nordic UART) ---
+// Nordic UART is used for calibration, tare and debug messages.
 BLEService uartService("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
 BLECharacteristic uartTXChar("6E400003-B5A3-F393-E0A9-E50E24DCCA9E");
 BLECharacteristic uartRXChar("6E400002-B5A3-F393-E0A9-E50E24DCCA9E");
@@ -31,7 +30,7 @@ void setupBLE() {
   Bluefruit.Periph.setConnSupervisionTimeout(4000);
   Bluefruit.Periph.setConnSlaveLatency(4);
 
-  // --- Cycling Power Service ---
+  // Cycling Power Service
   cyclingPowerService.begin();
 
   cpMeasurementChar.setProperties(CHR_PROPS_NOTIFY);
@@ -50,7 +49,7 @@ void setupBLE() {
 
   cpFeatureChar.write((uint8_t*)&features, 4);
 
-  // --- Garmin Calibration ---
+  // Control Point is used by head units for zero-offset requests.
   cpControlPointChar.setProperties(CHR_PROPS_WRITE | CHR_PROPS_INDICATE);
   cpControlPointChar.setPermission(SECMODE_OPEN, SECMODE_OPEN);
   cpControlPointChar.setMaxLen(20);
@@ -58,7 +57,7 @@ void setupBLE() {
   cpControlPointChar.begin();
 
 
-  // --- Battery Service ---
+  // Battery Service
   batteryService.begin();
 
   batteryLevelChar.setProperties(CHR_PROPS_READ | CHR_PROPS_NOTIFY);
@@ -69,7 +68,7 @@ void setupBLE() {
   uint8_t batt = 100;
   batteryLevelChar.write(&batt, 1);
 
-  // ---------------- UART Service ----------------
+  // UART Service
   uartService.begin();
 
   uartTXChar.setProperties(CHR_PROPS_NOTIFY);
@@ -84,7 +83,7 @@ void setupBLE() {
   uartRXChar.begin();
 
 
-  // --- Advertising ---
+  // Advertising payload
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
   Bluefruit.Advertising.addTxPower();
   Bluefruit.Advertising.addName();
@@ -104,7 +103,7 @@ void sendCyclingPowerMeasurement(int16_t powerWatts,
                                  uint16_t lastCrankEventTime) {
   uint8_t buf[8] = {0};
 
-  // Flags: Crank Revolution Data Present (bit 5)
+  // Flags: crank revolution data present (bit 5).
   buf[0] = 0x20;
   buf[1] = 0x00;
 

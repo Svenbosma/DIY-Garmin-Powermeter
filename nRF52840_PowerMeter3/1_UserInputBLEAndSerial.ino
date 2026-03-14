@@ -1,4 +1,4 @@
-// Buffer to collect incoming UART data
+// Collect newline-terminated BLE UART commands.
 String uartBuffer = "";
 
 void uartRXWriteCallback(uint16_t conn_hdl,
@@ -8,13 +8,13 @@ void uartRXWriteCallback(uint16_t conn_hdl,
 {
   if (len == 0) return;
 
-  // Append incoming bytes to buffer
+  // Append the latest BLE write to the command buffer.
   for (uint16_t i = 0; i < len; i++) {
     uartBuffer += (char)data[i];
   }
 
   calibrationActive = true;
-  // Process complete commands (newline terminated)
+  // Process each complete command line.
   int newlineIndex = uartBuffer.indexOf('\n');
   while (newlineIndex >= 0) {
     String cmd = uartBuffer.substring(0, newlineIndex);
@@ -25,7 +25,7 @@ void uartRXWriteCallback(uint16_t conn_hdl,
   calibrationActive = false;
 }
 
-// Command processing logic (unchanged except for compatibility)
+// Handle calibration, tare and maintenance commands.
 void processUARTCommand(String cmd) {
   cmd.trim();
   logPrint("UART command received: "); 

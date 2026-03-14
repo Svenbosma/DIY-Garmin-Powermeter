@@ -2,9 +2,9 @@
   DIY Powermeter v3.2
   - HX711 interrupt-driven torque sensor
   - BLE Cycling Power Service + UART calibration/tare
-  - Cadence from LSM6DS3: accel X zero-cross + gyro X sign
+  - Cadence from LSM6DS3 gyro integration
   - Wake-on-motion to exit SYSTEMOFF
-*/
+ */
 
 #include <bluefruit.h>
 #include <Arduino.h>
@@ -26,45 +26,30 @@ File tareFile(InternalFS);
 
 // ---------- config ----------
 #define CRANK_LENGTH_M      0.1725f
-#define ACCEL_THRESHOLD_G   0.05f
 #define SLEEP_TIMEOUT_MS    60000UL
 #define TARE_SAMPLES        200
 #define CAL_SAMPLES         200
-#define GYRO_FORWARD_THRESHOLD 0.0f
-#define LOW_BATT_THRESHOLD 20
 #define NUM_BATT_SAMPLES 10
 #define BATTERY_UPDATE_INTERVAL 12000UL
-#define BLINK_INTERVAL 300
-#define NUM_BLINKS 3
-#define FIFO_WATERMARK 100   // bytes (~5 gyro samples)
 
 // ---------- pins ----------
 #define HX_DT           2
 #define HX_SCK          3
 #define MOTION_INT_PIN  PIN_LSM6DS3TR_C_INT1
 
-// Battery
+// Battery state
 unsigned long lastBattMs = 0;
-unsigned long lastBlinkMs = 0;
 uint8_t battPercent = 100;
-uint8_t blinkCount = 0;
-bool ledState = false;
 
 // IMU
 LSM6DS3 myIMU(I2C_MODE, 0x6A);
-volatile bool fifoIRQ = false;
-void imuISR() { fifoIRQ = true; }
 
-// Torque + IMU accumulators
+// Measurement state
 float sumTorqueNm = 0.0f;
 int torqueSampleCount = 0;
-int imuSampleCount = 0;
-float sumGyroZ = 0.0f;
 unsigned long lastRevMs = 0;
 uint32_t cumulativeCrankRevs = 0;
 uint16_t lastCrankEventTime = 0;
-bool prevAccelPositive = false;
-volatile bool imuFifoReady = false;
 unsigned long revolutionTimestamp = 0;
 volatile bool calibrationActive = false;
 
@@ -74,13 +59,11 @@ long zeroOffsetCounts = 0;
 float scaleFactor_counts_per_N = NAN;
 volatile bool hx711ReadyFlag = false;
 
-// prototypes
+// Function prototypes
 void hx711ISR();
 float integrateYZ(float gyroY, float gyroZ);
-void imuISR();
-void processIMUFIFO();
-void configureIMUSettings();
-void setupIMUFIFO();
+bool detectRevolution(unsigned long sampleMillis, float degZ);
+void accumulateTorque(float torqueNm);
 void setupBLE();
 void doTare();
 void runCalibration(float knownMassKg);
@@ -90,10 +73,15 @@ void sendCyclingPowerMeasurement(int16_t powerWatts,
 void goToSystemOff();
 void batteryCheckAndLED();
 void CadencePowerCalc(unsigned long revolutionMs);
-float ReadGxFIFO();
 void loadFlashValues();
 void saveCalibration();
 void saveTare();
+void uartRXWriteCallback(uint16_t conn_hdl,
+                         BLECharacteristic* chr,
+                         uint8_t* data,
+                         uint16_t len);
+void processUARTCommand(String cmd);
+void setupWakeUpInterrupt();
 
 void logPrint(const String &msg);
 void logPrintln(const String &msg);
@@ -114,14 +102,14 @@ void cpControlPointWriteCallback(uint16_t conn_hdl,
                                  uint16_t len);
 
 void setup() {
-  // -- Peripheral and pin setup --
+  // Bring up serial logging first so startup diagnostics are visible.
   Serial.begin(115200);
   unsigned long start = millis();
   while (!Serial && (millis() - start < 2000)) {}
-  logPrintln("DIY Powermeter v3.1 start");
+  logPrintln("DIY Powermeter v3.2 start");
   Wire.begin();
 
-  // --- Battery pin setup ---
+  // Battery measurement and charge-current pin setup for the XIAO board.
   analogReadResolution(12); 
   analogReference(AR_INTERNAL_2_4);
   pinMode(PIN_CHARGING_CURRENT, OUTPUT);
@@ -130,7 +118,7 @@ void setup() {
   digitalWrite(VBAT_ENABLE, LOW);
   pinMode(PIN_VBAT, INPUT);
 
-  // ---- HX711 setup ----
+  // HX711 runs from the data-ready interrupt; keep SCK low when active.
   pinMode(HX_SCK, OUTPUT); digitalWrite(HX_SCK, LOW);
   pinMode(HX_DT, INPUT_PULLUP);
   scale.begin(HX_DT, HX_SCK);
@@ -139,8 +127,6 @@ void setup() {
 
   delay(1000);
   logPrintln("Starting IMU...");
-  // Apply all sensor/FIFO settings before begin(), matching the working FIFO test.
-  //configureIMUSettings();
   int imuStatus = myIMU.begin();
   logPrint("IMU begin result = ");
   logPrintln(String(imuStatus));
@@ -149,9 +135,8 @@ void setup() {
     logPrintln("IMU init failed!");
     while (1);
   }
-  //setupIMUFIFO();
 
-  // ---- Startup routine ----
+  // Load persisted tare/calibration before starting BLE service.
   loadFlashValues();
   setupBLE();
   lastRevMs = millis();
@@ -159,7 +144,7 @@ void setup() {
 }
 
 void loop() {
-  // HX711
+  // Each HX711 sample updates torque and provides the pacing for the main loop.
   if (hx711ReadyFlag) {
     hx711ReadyFlag = false;
     long raw = scale.read();
@@ -170,19 +155,12 @@ void loop() {
       float torqueNm = forceN * CRANK_LENGTH_M;
       accumulateTorque(torqueNm);
     }
-    float integratedyz = integrateYZ(myIMU.readFloatGyroY(), myIMU.readFloatGyroZ());
-    if (detectRevolution( millis(), integratedyz )) {
+
+    float integratedYz = integrateYZ(myIMU.readFloatGyroY(), myIMU.readFloatGyroZ());
+    if (detectRevolution(millis(), integratedYz)) {
       CadencePowerCalc(revolutionTimestamp);
     }
   }
-  
-  /*
-  // IMU
-  if (fifoIRQ) {
-    fifoIRQ = false;
-    drainFifoAvgGx();
-  }
-  */
 
   if ((millis() - lastRevMs) > SLEEP_TIMEOUT_MS && !calibrationActive) {
     logPrintln("No pedaling -> deep sleep");

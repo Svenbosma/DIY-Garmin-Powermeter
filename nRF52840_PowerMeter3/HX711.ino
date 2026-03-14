@@ -18,7 +18,7 @@ void loadFlashValues()
 {
   InternalFS.begin();
 
-  // ---------- LOAD CALIBRATION ----------
+  // Load calibration first so raw counts can be converted to force.
   calFile.open(CAL_FILE, FILE_O_READ);
 
   if (calFile)
@@ -40,7 +40,7 @@ void loadFlashValues()
     logPrintln("No calibration file found, using 0.0");
   }
 
-  // ---------- LOAD TARE ----------
+  // Load tare so each HX711 reading can be zero-referenced.
   tareFile.open(TARE_FILE, FILE_O_READ);
 
   if (tareFile)
@@ -65,7 +65,6 @@ void loadFlashValues()
 
 void saveTare()
 {
-  // Delete existing file
   InternalFS.remove(TARE_FILE);
 
   if (tareFile.open(TARE_FILE, FILE_O_WRITE))
@@ -84,7 +83,6 @@ void saveTare()
 
 void saveCalibration()
 {
-  // Delete existing file
   InternalFS.remove(CAL_FILE);
 
   if (calFile.open(CAL_FILE, FILE_O_WRITE))

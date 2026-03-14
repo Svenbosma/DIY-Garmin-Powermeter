@@ -1,6 +1,5 @@
 void CadencePowerCalc(unsigned long revolutionMs) {
-
-  // --- Average torque ---
+  // Average all torque samples collected since the previous revolution.
   float avgTorque = (torqueSampleCount > 0) ? 
                     (sumTorqueNm / torqueSampleCount) : 0.0f;
 
@@ -9,40 +8,37 @@ void CadencePowerCalc(unsigned long revolutionMs) {
   logPrint(" avg torque=");
   logPrint(avgTorque, 1);
 
-  // --- Time since last revolution ---
+  // Cadence comes from the revolution-to-revolution period.
   unsigned long now = revolutionMs;
   float dt = (now - lastRevMs) / 1000.0f;   // seconds
   lastRevMs = now;
 
-  // Prevent division by zero / unrealistic cadence
+  // Clamp to a plausible upper cadence limit.
   if (dt < 0.2f) dt = 0.2f;   // max 300 rpm
 
   float cadence_rpm = 60.0f / dt;
 
-  // --- Angular velocity from revolution timing ---
+  // Convert one revolution per dt into angular speed in rad/s.
   float angVelRad = (2.0f * PI) / dt;
 
-  // --- Power calculation ---
-  float powerW = avgTorque * angVelRad;
+  // This meter reads one crank arm, so report estimated total power multiplied by two.
+  float powerW = (avgTorque * angVelRad) * 2.0f;
 
-  // --- Cumulative crank revolutions ---
   cumulativeCrankRevs++;
 
-  // --- BLE crank timestamp (1/1024 s units) ---
+  // BLE Cycling Power uses 1/1024 second event timestamps.
   lastCrankEventTime = (uint16_t)(((uint32_t)now * 1024UL) / 1000UL);
 
-  // --- Send BLE measurement ---
   sendCyclingPowerMeasurement(
       (int16_t)powerW,
       cumulativeCrankRevs,
       lastCrankEventTime
   );
 
-  // --- Reset torque accumulator ---
+  // Start a fresh averaging window for the next crank revolution.
   sumTorqueNm = 0.0f;
   torqueSampleCount = 0;
 
-  // --- Debug ---
   logPrint(" Cadence=");
   logPrint(cadence_rpm, 1);
   logPrint(" rpm  Power=");
