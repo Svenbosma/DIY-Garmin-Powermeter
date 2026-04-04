@@ -20,9 +20,11 @@ using namespace Adafruit_LittleFS_Namespace;
 
 #define CAL_FILE   "/calibration.txt"
 #define TARE_FILE  "/tare.txt"
+#define GYRO_TARE_FILE "/gyro_tare.txt"
 
 File calFile(InternalFS);
 File tareFile(InternalFS);
+File gyroTareFile(InternalFS);
 
 // ---------- config ----------
 #define CRANK_LENGTH_M      0.1725f
@@ -43,14 +45,18 @@ uint8_t battPercent = 100;
 
 // IMU
 LSM6DS3 myIMU(I2C_MODE, 0x6A);
+float gyroBiasY_dps = 0.0f;
+float gyroBiasZ_dps = 0.0f;
+float lastGyroZ_dps = 0.0f;
 
 // Measurement state
 float sumTorqueNm = 0.0f;
 int torqueSampleCount = 0;
-unsigned long lastRevMs = 0;
+uint32_t lastRevUs = 0;
 uint32_t cumulativeCrankRevs = 0;
+uint32_t previousCadenceRevUs = 0;
 uint16_t lastCrankEventTime = 0;
-unsigned long revolutionTimestamp = 0;
+uint32_t revolutionTimestampUs = 0;
 volatile bool calibrationActive = false;
 
 // HX711
@@ -61,9 +67,10 @@ volatile bool hx711ReadyFlag = false;
 
 // Function prototypes
 void hx711ISR();
-float integrateYZ(float gyroY, float gyroZ);
-bool detectRevolution(unsigned long sampleMillis, float degZ);
+bool detectRevolution(uint32_t sampleMicros, float degZ);
 void accumulateTorque(float torqueNm);
+void configureActiveIMU();
+void doTareGyro();
 void setupBLE();
 void doTare();
 void runCalibration(float knownMassKg);
@@ -72,14 +79,16 @@ void sendCyclingPowerMeasurement(int16_t powerWatts,
                                  uint16_t lastCrankEventTime);
 void goToSystemOff();
 void batteryCheckAndLED();
-void CadencePowerCalc(unsigned long revolutionMs);
+void CadencePowerCalc(uint32_t revolutionUs);
 void loadFlashValues();
 void saveCalibration();
 void saveTare();
+void saveGyroTare();
 void uartRXWriteCallback(uint16_t conn_hdl,
                          BLECharacteristic* chr,
                          uint8_t* data,
                          uint16_t len);
+void serviceUARTCommands();
 void processUARTCommand(String cmd);
 void setupWakeUpInterrupt();
 
@@ -102,10 +111,6 @@ void cpControlPointWriteCallback(uint16_t conn_hdl,
                                  uint16_t len);
 
 void setup() {
-  // Bring up serial logging first so startup diagnostics are visible.
-  Serial.begin(115200);
-  unsigned long start = millis();
-  while (!Serial && (millis() - start < 2000)) {}
   logPrintln("DIY Powermeter v3.2 start");
   Wire.begin();
 
@@ -127,6 +132,7 @@ void setup() {
 
   delay(1000);
   logPrintln("Starting IMU...");
+  configureActiveIMU();
   int imuStatus = myIMU.begin();
   logPrint("IMU begin result = ");
   logPrintln(String(imuStatus));
@@ -139,11 +145,13 @@ void setup() {
   // Load persisted tare/calibration before starting BLE service.
   loadFlashValues();
   setupBLE();
-  lastRevMs = millis();
+  lastRevUs = micros();
   logPrintln("Ready. Commands via UART: 'c'=calib, 't'=tare, 'm <kg>'=custom calib.");
 }
 
 void loop() {
+  serviceUARTCommands();
+
   // Each HX711 sample updates torque and provides the pacing for the main loop.
   if (hx711ReadyFlag) {
     hx711ReadyFlag = false;
@@ -155,14 +163,15 @@ void loop() {
       float torqueNm = forceN * CRANK_LENGTH_M;
       accumulateTorque(torqueNm);
     }
-
-    float integratedYz = integrateYZ(myIMU.readFloatGyroY(), myIMU.readFloatGyroZ());
-    if (detectRevolution(millis(), integratedYz)) {
-      CadencePowerCalc(revolutionTimestamp);
+    uint32_t sampleMicros = micros();
+    lastGyroZ_dps = myIMU.readFloatGyroZ();
+    float degZ = lastGyroZ_dps;
+    if (detectRevolution(sampleMicros, degZ)) {
+      CadencePowerCalc(revolutionTimestampUs);
     }
   }
 
-  if ((millis() - lastRevMs) > SLEEP_TIMEOUT_MS && !calibrationActive) {
+  if ((micros() - lastRevUs) > (SLEEP_TIMEOUT_MS * 1000UL) && !calibrationActive) {
     logPrintln("No pedaling -> deep sleep");
     goToSystemOff();
   }

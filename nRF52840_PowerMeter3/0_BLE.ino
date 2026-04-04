@@ -23,7 +23,7 @@ void cpControlPointWriteCallback(uint16_t conn_hdl,
 void setupBLE() {
   Bluefruit.begin(1, 0);  // Peripheral only
   Bluefruit.autoConnLed(true);
-  Bluefruit.setTxPower(8);
+  Bluefruit.setTxPower(0);
   Bluefruit.setName("DIY-Powermeter");
 
   Bluefruit.Periph.setConnInterval(320, 640); // 400-800 ms
@@ -95,7 +95,6 @@ void setupBLE() {
   Bluefruit.Advertising.setFastTimeout(30);
   Bluefruit.Advertising.start(0);
 
-  Serial.println("Garmin Cycling Power Meter ready");
 }
 
 void sendCyclingPowerMeasurement(int16_t powerWatts,
@@ -131,8 +130,6 @@ void cpControlPointWriteCallback(uint16_t conn_hdl,
   uint8_t opcode = data[0];
 
   if (opcode == 0x0C) {  // Start Offset Compensation
-    Serial.println("Garmin calibration requested");
-
     doTare();
 
     uint8_t response[3] = {

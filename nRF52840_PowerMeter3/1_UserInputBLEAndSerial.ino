@@ -1,5 +1,6 @@
 // Collect newline-terminated BLE UART commands.
 String uartBuffer = "";
+volatile bool uartCommandPending = false;
 
 void uartRXWriteCallback(uint16_t conn_hdl,
                          BLECharacteristic* chr,
@@ -13,8 +14,15 @@ void uartRXWriteCallback(uint16_t conn_hdl,
     uartBuffer += (char)data[i];
   }
 
+  // Defer command execution to loop() so BLE callbacks stay short.
+  uartCommandPending = true;
+}
+
+void serviceUARTCommands() {
+  if (!uartCommandPending) return;
+
   calibrationActive = true;
-  // Process each complete command line.
+
   int newlineIndex = uartBuffer.indexOf('\n');
   while (newlineIndex >= 0) {
     String cmd = uartBuffer.substring(0, newlineIndex);
@@ -22,7 +30,9 @@ void uartRXWriteCallback(uint16_t conn_hdl,
     processUARTCommand(cmd);
     newlineIndex = uartBuffer.indexOf('\n');
   }
+
   calibrationActive = false;
+  uartCommandPending = (uartBuffer.indexOf('\n') >= 0);
 }
 
 // Handle calibration, tare and maintenance commands.
@@ -36,6 +46,7 @@ void processUARTCommand(String cmd) {
   } 
   else if (cmd.equalsIgnoreCase("t")) {
     doTare();
+    doTareGyro();
   } 
   else if (cmd.startsWith("m")) {
     String massStr = cmd.substring(1);

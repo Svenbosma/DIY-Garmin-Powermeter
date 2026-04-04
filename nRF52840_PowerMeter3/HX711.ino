@@ -61,6 +61,35 @@ void loadFlashValues()
     zeroOffsetCounts = 0;
     logPrintln("No tare file found, using 0");
   }
+
+  gyroTareFile.open(GYRO_TARE_FILE, FILE_O_READ);
+
+  if (gyroTareFile)
+  {
+    char buffer[64] = {0};
+    uint32_t len = gyroTareFile.read(buffer, sizeof(buffer)-1);
+    buffer[len] = 0;
+
+    int parsed = sscanf(buffer, "%f %f", &gyroBiasY_dps, &gyroBiasZ_dps);
+    if (parsed == 2) {
+      logPrint("Loaded gyro tare Y/Z = ");
+      logPrint(String(gyroBiasY_dps, 6));
+      logPrint(", ");
+      logPrintln(String(gyroBiasZ_dps, 6));
+    } else {
+      gyroBiasY_dps = 0.0f;
+      gyroBiasZ_dps = 0.0f;
+      logPrintln("Invalid gyro tare file, using 0.0");
+    }
+
+    gyroTareFile.close();
+  }
+  else
+  {
+    gyroBiasY_dps = 0.0f;
+    gyroBiasZ_dps = 0.0f;
+    logPrintln("No gyro tare file found, using 0.0");
+  }
 }
 
 void saveTare()
@@ -99,6 +128,24 @@ void saveCalibration()
   }
 }
 
+void saveGyroTare()
+{
+  InternalFS.remove(GYRO_TARE_FILE);
+
+  if (gyroTareFile.open(GYRO_TARE_FILE, FILE_O_WRITE))
+  {
+    String val = String(gyroBiasY_dps, 6) + " " + String(gyroBiasZ_dps, 6);
+    gyroTareFile.write(val.c_str(), val.length());
+    gyroTareFile.close();
+
+    logPrintln("Gyro tare saved to flash");
+  }
+  else
+  {
+    logPrintln("Failed to save gyro tare");
+  }
+}
+
 
 void doTare()
 {
@@ -111,6 +158,31 @@ void doTare()
   logPrintln(String(zeroOffsetCounts));
 
   saveTare();
+}
+
+void doTareGyro()
+{
+  logPrintln("Gyro tare: keep crank still");
+  delay(1000);
+
+  float sumGyroY = 0.0f;
+  float sumGyroZ = 0.0f;
+
+  for (int i = 0; i < TARE_SAMPLES; i++) {
+    sumGyroY += myIMU.readFloatGyroY();
+    sumGyroZ += myIMU.readFloatGyroZ();
+    delay(5);
+  }
+
+  gyroBiasY_dps = sumGyroY / TARE_SAMPLES;
+  gyroBiasZ_dps = sumGyroZ / TARE_SAMPLES;
+
+  logPrint("gyroBiasY_dps = ");
+  logPrintln(String(gyroBiasY_dps, 6));
+  logPrint("gyroBiasZ_dps = ");
+  logPrintln(String(gyroBiasZ_dps, 6));
+
+  saveGyroTare();
 }
 
 void runCalibration(float knownMassKg)
@@ -140,4 +212,5 @@ void runCalibration(float knownMassKg)
   logPrintln("=== Calibration Done ===");
 
   saveCalibration();
+  return;
 }
