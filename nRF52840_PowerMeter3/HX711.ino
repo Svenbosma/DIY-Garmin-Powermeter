@@ -1,5 +1,9 @@
 void hx711ISR() { hx711ReadyFlag = true; }
 
+static float crankLengthHalfMmToMeters(uint16_t halfMm) {
+  return ((float)halfMm * 0.5f) / 1000.0f;
+}
+
 long averageCounts(int n, unsigned long timeoutMs) {
   long sum = 0; int k=0;
   unsigned long t0 = millis();
@@ -17,6 +21,7 @@ void accumulateTorque(float torqueNm) {
 void loadFlashValues()
 {
   InternalFS.begin();
+  bool loadedTare = false;
 
   // Load calibration first so raw counts can be converted to force.
   calFile.open(CAL_FILE, FILE_O_READ);
@@ -50,6 +55,7 @@ void loadFlashValues()
     buffer[len] = 0;
 
     zeroOffsetCounts = atol(buffer);
+    loadedTare = true;
 
     logPrint("Loaded tare: ");
     logPrintln(String(zeroOffsetCounts));
@@ -60,6 +66,63 @@ void loadFlashValues()
   {
     zeroOffsetCounts = 0;
     logPrintln("No tare file found, using 0");
+  }
+
+  File crankLengthFile(InternalFS);
+  crankLengthFile.open(CRANK_LENGTH_FILE, FILE_O_READ);
+
+  if (crankLengthFile)
+  {
+    char buffer[32] = {0};
+    uint32_t len = crankLengthFile.read(buffer, sizeof(buffer)-1);
+    buffer[len] = 0;
+
+    uint16_t loadedHalfMm = (uint16_t)atoi(buffer);
+    if (!setCrankLengthHalfMm(loadedHalfMm, false)) {
+      logPrintln("Invalid crank length file, using default 172.5 mm");
+      crankLengthHalfMm = DEFAULT_CRANK_LENGTH_HALF_MM;
+      crankLengthM = DEFAULT_CRANK_LENGTH_M;
+    } else {
+      logPrint("Loaded crank length = ");
+      logPrint((float)crankLengthHalfMm * 0.5f, 1);
+      logPrintln(" mm");
+    }
+
+    crankLengthFile.close();
+  }
+  else
+  {
+    crankLengthHalfMm = DEFAULT_CRANK_LENGTH_HALF_MM;
+    crankLengthM = DEFAULT_CRANK_LENGTH_M;
+    logPrintln("No crank length file found, using default 172.5 mm");
+  }
+
+  File garminOffsetRefFile(InternalFS);
+  garminOffsetRefFile.open(GARMIN_OFFSET_REF_FILE, FILE_O_READ);
+
+  if (garminOffsetRefFile)
+  {
+    char buffer[32] = {0};
+    uint32_t len = garminOffsetRefFile.read(buffer, sizeof(buffer)-1);
+    buffer[len] = 0;
+
+    garminOffsetReferenceCounts = atol(buffer);
+    garminOffsetReferenceValid = true;
+
+    logPrint("Loaded Garmin offset reference = ");
+    logPrintln(String(garminOffsetReferenceCounts));
+
+    garminOffsetRefFile.close();
+  }
+  else
+  {
+    garminOffsetReferenceCounts = 0;
+    garminOffsetReferenceValid = false;
+    logPrintln("No Garmin offset reference file found");
+
+    if (loadedTare) {
+      ensureGarminOffsetReference();
+    }
   }
 
   gyroTareFile.open(GYRO_TARE_FILE, FILE_O_READ);
@@ -110,6 +173,44 @@ void saveTare()
   }
 }
 
+void saveCrankLength()
+{
+  File crankLengthFile(InternalFS);
+  InternalFS.remove(CRANK_LENGTH_FILE);
+
+  if (crankLengthFile.open(CRANK_LENGTH_FILE, FILE_O_WRITE))
+  {
+    String val = String(crankLengthHalfMm);
+    crankLengthFile.write(val.c_str(), val.length());
+    crankLengthFile.close();
+
+    logPrintln("Crank length saved to flash");
+  }
+  else
+  {
+    logPrintln("Failed to save crank length");
+  }
+}
+
+void saveGarminOffsetReference()
+{
+  File garminOffsetRefFile(InternalFS);
+  InternalFS.remove(GARMIN_OFFSET_REF_FILE);
+
+  if (garminOffsetRefFile.open(GARMIN_OFFSET_REF_FILE, FILE_O_WRITE))
+  {
+    String val = String(garminOffsetReferenceCounts);
+    garminOffsetRefFile.write(val.c_str(), val.length());
+    garminOffsetRefFile.close();
+
+    logPrintln("Garmin offset reference saved to flash");
+  }
+  else
+  {
+    logPrintln("Failed to save Garmin offset reference");
+  }
+}
+
 void saveCalibration()
 {
   InternalFS.remove(CAL_FILE);
@@ -146,8 +247,54 @@ void saveGyroTare()
   }
 }
 
+bool setCrankLengthHalfMm(uint16_t halfMm, bool persist)
+{
+  if (halfMm == 0) {
+    return false;
+  }
 
-void doTare()
+  crankLengthHalfMm = halfMm;
+  crankLengthM = crankLengthHalfMmToMeters(halfMm);
+
+  logPrint("crankLengthM = ");
+  logPrintln(String(crankLengthM, 4));
+
+  if (persist) {
+    saveCrankLength();
+  }
+
+  return true;
+}
+
+void ensureGarminOffsetReference()
+{
+  if (garminOffsetReferenceValid) {
+    return;
+  }
+
+  garminOffsetReferenceCounts = zeroOffsetCounts;
+  garminOffsetReferenceValid = true;
+
+  logPrint("Initialized Garmin offset reference = ");
+  logPrintln(String(garminOffsetReferenceCounts));
+  saveGarminOffsetReference();
+}
+
+int16_t getGarminDisplayedOffset()
+{
+  ensureGarminOffsetReference();
+
+  // Keep Garmin's displayed offset anchored to a saved baseline so users see
+  // a small drift value (for example +10) instead of the full HX711 raw count.
+  long deltaCounts = zeroOffsetCounts - garminOffsetReferenceCounts;
+  if (deltaCounts > INT16_MAX) deltaCounts = INT16_MAX;
+  if (deltaCounts < INT16_MIN) deltaCounts = INT16_MIN;
+
+  return (int16_t)deltaCounts;
+}
+
+
+void doTare(bool updateGarminReference)
 {
   logPrintln("Tare: remove load from pedal");
   delay(1000);
@@ -158,6 +305,15 @@ void doTare()
   logPrintln(String(zeroOffsetCounts));
 
   saveTare();
+
+  if (updateGarminReference) {
+    garminOffsetReferenceCounts = zeroOffsetCounts;
+    garminOffsetReferenceValid = true;
+
+    logPrint("Saved UART tare reference = ");
+    logPrintln(String(garminOffsetReferenceCounts));
+    saveGarminOffsetReference();
+  }
 }
 
 void doTareGyro()
@@ -213,4 +369,20 @@ void runCalibration(float knownMassKg)
 
   saveCalibration();
   return;
+}
+
+int16_t doGarminOffsetCompensation()
+{
+  calibrationActive = true;
+
+  doTare(false);
+  doTareGyro();
+
+  int16_t garminOffset = getGarminDisplayedOffset();
+
+  logPrint("Garmin offset value = ");
+  logPrintln(String(garminOffset));
+
+  calibrationActive = false;
+  return garminOffset;
 }

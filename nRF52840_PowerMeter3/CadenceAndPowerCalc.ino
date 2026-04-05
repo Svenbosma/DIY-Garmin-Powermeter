@@ -1,3 +1,10 @@
+bool shouldAccumulateTorqueSample(float torqueNm, float correctedGyroZ_dps) {
+  float angularVelocityRadPerSec = correctedGyroZ_dps * (PI / 180.0f);
+  float samplePowerW = (torqueNm * angularVelocityRadPerSec) * 2.0f;
+
+  return isfinite(samplePowerW) && fabs(samplePowerW) <= MAX_VALID_POWER_W;
+}
+
 void CadencePowerCalc(uint32_t revolutionUs) {
   lastRevUs = revolutionUs;
 
@@ -32,8 +39,16 @@ void CadencePowerCalc(uint32_t revolutionUs) {
     float angVelRadLocal = (2.0f * PI) / dt;
     angVelRad = angVelRadLocal;
 
-    // This meter reads one crank arm, so report estimated total power multiplied by two.
-    powerW = (avgTorque * angVelRadLocal) * 2.0f;
+    if (cadence_rpm >= MIN_POWER_CADENCE_RPM) {
+      // This meter reads one crank arm, so report estimated total power multiplied by two.
+      powerW = (avgTorque * angVelRadLocal) * 2.0f;
+    } else {
+      powerW = 0.0f;
+    }
+
+    if (powerW > MAX_VALID_POWER_W) {
+      powerW = 0.0f;
+    }
   }
   previousCadenceRevUs = nowUs;
 

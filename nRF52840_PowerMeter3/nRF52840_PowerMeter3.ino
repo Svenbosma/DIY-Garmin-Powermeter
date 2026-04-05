@@ -15,19 +15,25 @@
 #include <nrf_sdm.h>
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
+#include <stdint.h>
 
 using namespace Adafruit_LittleFS_Namespace;
 
 #define CAL_FILE   "/calibration.txt"
 #define TARE_FILE  "/tare.txt"
 #define GYRO_TARE_FILE "/gyro_tare.txt"
+#define CRANK_LENGTH_FILE "/crank_length.txt"
+#define GARMIN_OFFSET_REF_FILE "/garmin_offset_ref.txt"
 
 File calFile(InternalFS);
 File tareFile(InternalFS);
 File gyroTareFile(InternalFS);
 
 // ---------- config ----------
-#define CRANK_LENGTH_M      0.1725f
+#define DEFAULT_CRANK_LENGTH_M      0.1725f
+#define DEFAULT_CRANK_LENGTH_HALF_MM 345U
+#define MIN_POWER_CADENCE_RPM 25.0f
+#define MAX_VALID_POWER_W 2000.0f
 #define SLEEP_TIMEOUT_MS    60000UL
 #define TARE_SAMPLES        200
 #define CAL_SAMPLES         200
@@ -62,17 +68,24 @@ volatile bool calibrationActive = false;
 // HX711
 HX711 scale;
 long zeroOffsetCounts = 0;
+long garminOffsetReferenceCounts = 0;
+bool garminOffsetReferenceValid = false;
 float scaleFactor_counts_per_N = NAN;
 volatile bool hx711ReadyFlag = false;
+uint16_t crankLengthHalfMm = DEFAULT_CRANK_LENGTH_HALF_MM;
+float crankLengthM = DEFAULT_CRANK_LENGTH_M;
 
 // Function prototypes
 void hx711ISR();
 bool detectRevolution(uint32_t sampleMicros, float degZ);
 void accumulateTorque(float torqueNm);
+bool shouldAccumulateTorqueSample(float torqueNm, float correctedGyroZ_dps);
 void configureActiveIMU();
 void doTareGyro();
 void setupBLE();
-void doTare();
+void serviceCyclingPowerControlPoint();
+void doTare(bool updateGarminReference);
+int16_t doGarminOffsetCompensation();
 void runCalibration(float knownMassKg);
 void sendCyclingPowerMeasurement(int16_t powerWatts,
                                  uint16_t cumulativeCrankRevs,
@@ -84,6 +97,11 @@ void loadFlashValues();
 void saveCalibration();
 void saveTare();
 void saveGyroTare();
+void saveCrankLength();
+void saveGarminOffsetReference();
+bool setCrankLengthHalfMm(uint16_t halfMm, bool persist);
+int16_t getGarminDisplayedOffset();
+void ensureGarminOffsetReference();
 void uartRXWriteCallback(uint16_t conn_hdl,
                          BLECharacteristic* chr,
                          uint8_t* data,
@@ -151,21 +169,26 @@ void setup() {
 
 void loop() {
   serviceUARTCommands();
+  serviceCyclingPowerControlPoint();
 
   // Each HX711 sample updates torque and provides the pacing for the main loop.
   if (hx711ReadyFlag) {
     hx711ReadyFlag = false;
     long raw = scale.read();
+    uint32_t sampleMicros = micros();
+    float rawGyroZ_dps = myIMU.readFloatGyroZ();
+    float correctedGyroZ_dps = rawGyroZ_dps - gyroBiasZ_dps;
     long net = raw - zeroOffsetCounts;
 
     if (isfinite(scaleFactor_counts_per_N) && fabs(scaleFactor_counts_per_N) > 1e-6f) {
       float forceN = (float)net / scaleFactor_counts_per_N;
-      float torqueNm = forceN * CRANK_LENGTH_M;
-      accumulateTorque(torqueNm);
+      float torqueNm = forceN * crankLengthM;
+      if (shouldAccumulateTorqueSample(torqueNm, correctedGyroZ_dps)) {
+        accumulateTorque(torqueNm);
+      }
     }
-    uint32_t sampleMicros = micros();
-    lastGyroZ_dps = myIMU.readFloatGyroZ();
-    float degZ = lastGyroZ_dps;
+    lastGyroZ_dps = rawGyroZ_dps;
+    float degZ = rawGyroZ_dps;
     if (detectRevolution(sampleMicros, degZ)) {
       CadencePowerCalc(revolutionTimestampUs);
     }

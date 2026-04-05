@@ -45,8 +45,10 @@ void processUARTCommand(String cmd) {
     runCalibration(10.0f);
   } 
   else if (cmd.equalsIgnoreCase("t")) {
-    doTare();
+    doTare(true);
     doTareGyro();
+    logPrint("Garmin offset value = ");
+    logPrintln(String(getGarminDisplayedOffset()));
   } 
   else if (cmd.startsWith("m")) {
     String massStr = cmd.substring(1);
