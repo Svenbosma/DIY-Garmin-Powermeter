@@ -153,7 +153,7 @@ Garmin head units have a built-in "Calibrate Power Meter" option in the sensor m
 | Riding (BLE active, HX711 sampling) | ~10 mA |
 | Deep sleep (System OFF, IMU only) | ~0.07 mA |
 
-At 10mA a 300mAh battery gives ~30 hours of riding. Since sleep kicks in after 60 seconds of stopping, the standby drain between rides is negligible. You'd have to genuinely forget about it for weeks to kill it.
+At 10mA a 300mAh battery gives ~30 hours of riding. In standby it will survive for about 20 weeks realistically. 
 
 ---
 
