@@ -23,14 +23,11 @@ bool detectRevolution(uint32_t sampleMicros, float degZ)
   static float deltaAngle = 0;
 
   const float deadband = 0.01f;
-  const float alpha = 0.25f;
 
   // Time delta between consecutive HX711-paced samples.
   uint32_t dtUs = sampleMicros - lastMicros;
   lastMicros = sampleMicros;
 
-  // Smooth the gyro signal before integrating.
-  //gzFiltered += alpha * (degZ - gzFiltered);
   gzFiltered = degZ - gyroBiasZ_dps;
 
   // Convert deg/s into degrees moved since the previous sample.

@@ -24,7 +24,6 @@ void CadencePowerCalc(uint32_t revolutionUs) {
   uint32_t nowUs = revolutionUs;
   float dt = 0.0f;
   float cadence_rpm = 0.0f;
-  float angVelRad = 0.0f;
   float powerW = 0.0f;
 
   if (previousCadenceRevUs != 0) {
@@ -37,7 +36,6 @@ void CadencePowerCalc(uint32_t revolutionUs) {
 
     // Convert one revolution per dt into angular speed in rad/s.
     float angVelRadLocal = (2.0f * PI) / dt;
-    angVelRad = angVelRadLocal;
 
     if (cadence_rpm >= MIN_POWER_CADENCE_RPM) {
       // This meter reads one crank arm, so report estimated total power multiplied by two.
@@ -51,6 +49,9 @@ void CadencePowerCalc(uint32_t revolutionUs) {
     }
   }
   previousCadenceRevUs = nowUs;
+
+  // No negative power allowed
+  powerW = fabs(powerW);
 
   cumulativeCrankRevs++;
 

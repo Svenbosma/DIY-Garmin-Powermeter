@@ -41,7 +41,17 @@ void processUARTCommand(String cmd) {
   logPrint("UART command received: "); 
   logPrintln(cmd);
 
-  if (cmd.equalsIgnoreCase("c")) {
+  if (cmd.equalsIgnoreCase("i")) {
+    sendCommandInfo();
+  }
+  else if (cmd.equalsIgnoreCase("l")) {
+    loggingEnabled = !loggingEnabled;
+    bool saved = saveLoggingState();
+    String msg = String("Logging ") + (loggingEnabled ? "ON" : "OFF");
+    msg += (saved ? " saved\r\n" : " save failed\r\n");
+    uartNotifyChunked(msg);
+  }
+  else if (cmd.equalsIgnoreCase("c")) {
     runCalibration(10.0f);
   } 
   else if (cmd.equalsIgnoreCase("t")) {
@@ -53,6 +63,7 @@ void processUARTCommand(String cmd) {
   else if (cmd.startsWith("m")) {
     String massStr = cmd.substring(1);
     massStr.trim();
+    massStr.replace(',', '.');
     float kg = massStr.toFloat();
     if (kg > 0.0f) {
       runCalibration(kg);
@@ -68,4 +79,14 @@ void processUARTCommand(String cmd) {
     logPrint("Unknown UART command: "); 
     logPrintln(cmd);
   }
+}
+
+void sendCommandInfo() {
+  logPrintln("Commands:");
+  logPrintln("i: show commands");
+  logPrintln("l: toggle logging");
+  logPrintln("c: calibrate 10kg");
+  logPrintln("m <kg>: calibrate");
+  logPrintln("t: tare + gyro");
+  logPrintln("dfu: bootloader");
 }

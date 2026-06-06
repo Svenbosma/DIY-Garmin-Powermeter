@@ -25,8 +25,6 @@ void setupWakeUpInterrupt()
 
   // System-off wake uses GPIO sense only; no ISR is required here.
 	pinMode(PIN_LSM6DS3TR_C_INT1, INPUT_PULLDOWN_SENSE);
-
-  return;
 }
 
 void goToSystemOff() {

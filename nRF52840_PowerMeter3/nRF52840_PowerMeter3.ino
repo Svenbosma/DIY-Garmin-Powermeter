@@ -24,6 +24,7 @@ using namespace Adafruit_LittleFS_Namespace;
 #define GYRO_TARE_FILE "/gyro_tare.txt"
 #define CRANK_LENGTH_FILE "/crank_length.txt"
 #define GARMIN_OFFSET_REF_FILE "/garmin_offset_ref.txt"
+#define LOGGING_FILE "/logging.txt"
 
 File calFile(InternalFS);
 File tareFile(InternalFS);
@@ -64,6 +65,7 @@ uint32_t previousCadenceRevUs = 0;
 uint16_t lastCrankEventTime = 0;
 uint32_t revolutionTimestampUs = 0;
 volatile bool calibrationActive = false;
+bool loggingEnabled = true;
 
 // HX711
 HX711 scale;
@@ -99,6 +101,7 @@ void saveTare();
 void saveGyroTare();
 void saveCrankLength();
 void saveGarminOffsetReference();
+bool saveLoggingState();
 bool setCrankLengthHalfMm(uint16_t halfMm, bool persist);
 int16_t getGarminDisplayedOffset();
 void ensureGarminOffsetReference();
@@ -108,8 +111,10 @@ void uartRXWriteCallback(uint16_t conn_hdl,
                          uint16_t len);
 void serviceUARTCommands();
 void processUARTCommand(String cmd);
+void sendCommandInfo();
 void setupWakeUpInterrupt();
 
+void uartNotifyChunked(const String &msg);
 void logPrint(const String &msg);
 void logPrintln(const String &msg);
 void logPrint(const char *msg) { logPrint(String(msg)); }
@@ -164,7 +169,7 @@ void setup() {
   loadFlashValues();
   setupBLE();
   lastRevUs = micros();
-  logPrintln("Ready. Commands via UART: 'c'=calib, 't'=tare, 'm <kg>'=custom calib.");
+  logPrintln("Ready. Commands via UART: 'i'=info, 'l'=logging, 'c'=calib, 't'=tare, 'm <kg>'=custom calib.");
 }
 
 void loop() {
