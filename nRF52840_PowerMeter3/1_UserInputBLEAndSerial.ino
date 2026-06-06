@@ -1,5 +1,6 @@
-// Buffer to collect incoming UART data
+// Collect newline-terminated BLE UART commands.
 String uartBuffer = "";
+volatile bool uartCommandPending = false;
 
 void uartRXWriteCallback(uint16_t conn_hdl,
                          BLECharacteristic* chr,
@@ -8,13 +9,20 @@ void uartRXWriteCallback(uint16_t conn_hdl,
 {
   if (len == 0) return;
 
-  // Append incoming bytes to buffer
+  // Append the latest BLE write to the command buffer.
   for (uint16_t i = 0; i < len; i++) {
     uartBuffer += (char)data[i];
   }
 
+  // Defer command execution to loop() so BLE callbacks stay short.
+  uartCommandPending = true;
+}
+
+void serviceUARTCommands() {
+  if (!uartCommandPending) return;
+
   calibrationActive = true;
-  // Process complete commands (newline terminated)
+
   int newlineIndex = uartBuffer.indexOf('\n');
   while (newlineIndex >= 0) {
     String cmd = uartBuffer.substring(0, newlineIndex);
@@ -22,24 +30,40 @@ void uartRXWriteCallback(uint16_t conn_hdl,
     processUARTCommand(cmd);
     newlineIndex = uartBuffer.indexOf('\n');
   }
+
   calibrationActive = false;
+  uartCommandPending = (uartBuffer.indexOf('\n') >= 0);
 }
 
-// Command processing logic (unchanged except for compatibility)
+// Handle calibration, tare and maintenance commands.
 void processUARTCommand(String cmd) {
   cmd.trim();
   logPrint("UART command received: "); 
   logPrintln(cmd);
 
-  if (cmd.equalsIgnoreCase("c")) {
+  if (cmd.equalsIgnoreCase("i")) {
+    sendCommandInfo();
+  }
+  else if (cmd.equalsIgnoreCase("l")) {
+    loggingEnabled = !loggingEnabled;
+    bool saved = saveLoggingState();
+    String msg = String("Logging ") + (loggingEnabled ? "ON" : "OFF");
+    msg += (saved ? " saved\r\n" : " save failed\r\n");
+    uartNotifyChunked(msg);
+  }
+  else if (cmd.equalsIgnoreCase("c")) {
     runCalibration(10.0f);
   } 
   else if (cmd.equalsIgnoreCase("t")) {
-    doTare();
+    doTare(true);
+    doTareGyro();
+    logPrint("Garmin offset value = ");
+    logPrintln(String(getGarminDisplayedOffset()));
   } 
   else if (cmd.startsWith("m")) {
     String massStr = cmd.substring(1);
     massStr.trim();
+    massStr.replace(',', '.');
     float kg = massStr.toFloat();
     if (kg > 0.0f) {
       runCalibration(kg);
@@ -55,4 +79,14 @@ void processUARTCommand(String cmd) {
     logPrint("Unknown UART command: "); 
     logPrintln(cmd);
   }
+}
+
+void sendCommandInfo() {
+  logPrintln("Commands:");
+  logPrintln("i: show commands");
+  logPrintln("l: toggle logging");
+  logPrintln("c: calibrate 10kg");
+  logPrintln("m <kg>: calibrate");
+  logPrintln("t: tare + gyro");
+  logPrintln("dfu: bootloader");
 }

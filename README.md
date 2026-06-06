@@ -1,133 +1,170 @@
 # DIY Cycling Power Meter
 
-A single-sided crank-based cycling power meter built around the **Seeed XIAO nRF52840 Sense**, a set of **strain gauges**, and the classic **HX711 load cell amplifier**. Cadence is measured using the onboard 6-axis IMU (gyro), and everything is transmitted over Bluetooth using the official **Cycling Power Profile (CPP)** so that bike computers and apps (Garmin, Wahoo, Zwift, etc.) recognize it as a real power meter.
+**What I've made**
+
+A fully working BLE cycling power meter mounted on the left crank of my gravel bike. It broadcasts via Bluetooth using the standard **Cycling Power Profile** so it just shows up as a power meter in Garmin, Wahoo, Zwift, TrainerRoad, or whatever you ride with.
 
 ---
 
-## Hardware Overview
+## The Story
 
-| Component | Image |
-|-----------|-------|
-| Seeed XIAO nRF52840 Sense | <img src="images/xiao.png" width="180px"> |
-| HX711 Load Cell Amplifier | <img src="images/hx711.png" width="180px"> |
-| Foil Strain Gauges | <img src="images/strain_gauges.png" width="180px"> |
-| Shimano GRX Right Crank (example) | <img src="images/crank.png" width="180px"> |
-| 18650 Li-ion Battery | <img src="images/18650.png" width="180px"> |
-| Weatherproof Magnetic Charger | <img src="images/connector.png" width="180px"> |
+I am a big nerd and as soon as I got into cycling, I of course wanted more data. The best data for cycling is of course power, so I quickly stumbled down the path of wanting to buy a power meter. Commercial power meters start around €300 and go up fast. I stared at the price tags for a while, then thought: *how hard can it be, it's just a strain gauge readout and some Bluetooth*.
 
----
+Spoiler: harder than expected. Been working on it (off and on) for a bit less than a year now.
 
-## Features
+The first version used the **right crank**, which turned out to be a pain. Issues with clearance and wiring routing to the battery which I wanted to fit inside the hollow crank. After some frustration I switched to the **left crank**, which has a larger clearance between rear fork and pedals and makes everything much neater.
 
-* **Power measurement** via 4-gauge Wheatstone bridge + HX711.
-* **Cadence detection** using the onboard LSM6DS3 gyro (no magnets).
-* **Bluetooth Low Energy (BLE)** Cycling Power Profile (standardized).
-* **Auto sleep / wake-on-motion**: goes into µA standby when idle, wakes when you touch the pedals.
-* Runs from a single **18650 Li-ion cell** for months.
-* **Zero-offset and calibration routines** built in.
+### Things I Struggled With
+
+- Getting the HX711 data to be readable
+- The Bluetooth Cycling Power Profile spec is... not exactly beginner-friendly documentation
+- Getting Garmin to accept and display the zero-offset calibration correctly (there's a whole control-point dance involved)
+- **Battery life**, early iterations with 350Ω gauges drew too much current. Switching to **1kΩ Wheatstone bridge sensors** cut standby current dramatically
+- Cadence via gyro integration works great but needed careful deadband tuning to avoid phantom revolutions at low speeds
+- Making it weatherproof enough for wet rides while still being easy to charge
+- Worst of all, testing cadence on my record player. Fine-tuning for weeks because I thought I was off, only to find out my record player was off and the cadence measurement was actually on point. 
+
+The final unit draws **~10mA while riding** and **~0.07mA in standby**. The 300mAh battery lasts a very long time.
 
 ---
 
-## Why these components?
+## The Final Result
 
-* **Seeed XIAO nRF52840 Sense**
+| | |
+|---|---|
+| Mounted on the Shimano left crank | <img src="images/IMG_2656.jpeg" width="400px"> |
+| Electronics on the crank | <img src="images/IMG_2652.jpeg" width="400px"> |
+| 4× strain gauges in Wheatstone bridge | <img src="images/IMG_2644.jpeg" width="400px"> |
+| 3D printed enclosure | <img src="images/IMG_2648.jpeg" width="400px"> |
+| 3D printed enclosure | <img src="images/IMG_2649.jpeg" width="400px"> |
 
-  * Tiny, low-power, has BLE built in.
-  * Includes a 6-axis IMU perfect for cadence detection.
-  * Has built-in lithium cell charger (really slow but hey, its tiny)
-
-* **HX711 load cell amplifier**
-
-  * Cheap, easy to use, widely supported.
-  * Commercial meters often use more advanced ADCs (TI ADS-series, custom ASICs), but HX711 works fine for DIY.
-
-* **Strain gauges**
-
-  * Standard foil gauges arranged in a full Wheatstone bridge give best sensitivity and thermal stability.
-
-* **18650 battery**
-
-  * High energy density, rechargeable, common in DIY.
-
-* **Weatherproof magnetic connector**
-
-  * Used for charging instead of USB-C.
-  * Safer for outdoor use (rain, mud).
-  * Prevents wear and tear on the tiny XIAO USB connector.
+Everything — XIAO, HX711, LiPo, and connectors — fits in a small 3D printed box that bolts directly onto the crank arm. I wanted to be able to reach the electronics for testing. But if I were to do it again I would just caulk it on instead of using bolts.
 
 ---
 
-## Hardware setup
+## Hardware
 
-* Mount 4 strain gauges on the **right crank arm** (single-sided measurement).
-* Wire them as a **full Wheatstone bridge** → connect to HX711 breakout.
-* HX711 `DOUT` → XIAO pin D2.
-* HX711 `SCK`  → XIAO pin D3.
-* IMU is onboard (LSM6DS3). Its INT1 can be connected to pin D7 if you want hardware wake.
-* Power everything from the 3.3V regulated by the XIAO.
+| Component | Role | Image |
+|---|---|---|
+| Seeed XIAO nRF52840 Sense | Microcontroller + BLE + IMU | <img src="images/xiao.png" width="160px"> |
+| HX711 | 24-bit strain gauge ADC | <img src="images/hx711.png" width="160px"> |
+| BF1K-3AA strain gauges (×4) | Measure crank deflection | <img src="images/strain_gauges.png" width="160px"> |
+| 300mAh LiPo | Power | <img src="images/3.7V-High-Temperature-LiPo-300mAh-2.jpg" width="160px"> |
+| Magnetic charging connector | Weatherproof charging port | <img src="images/connector.png" width="160px"> |
+| Shimano left crank arm | I hope this is self explanatory | <img src="images/shimano-fcrx8201-left-hand-crank-arm-170-mm_151339768_tmb.jpg" width="160px"> |
 
----
+### Why 1kΩ gauges?
 
-## Software overview
-
-* **Cadence detection**:
-
-  * Gyroscope outputs angular velocity in deg/s.
-  * Smoothed with a simple low-pass filter.
-  * Positive → negative → positive zero-crossing = one crank revolution.
-
-* **Power calculation**:
-
-  * HX711 reads torque via strain gauges.
-  * Torque = Force × crank length.
-  * Power = Torque × angular velocity.
-  * Calibration is required to convert HX711 counts into Newtons.
-
-* **BLE output**:
-
-  * Implements Cycling Power Measurement characteristic.
-  * Sends instantaneous power + cumulative crank revolutions + event time.
-
-* **Low power**:
-
-  * Two levels of power saving:
-    * **Sleep mode (during riding):** MCU sleeps between HX711 interrupts (~80 Hz). Current consumption stays very low, entire program runs on 80Hz.
-    * **Deep sleep (when idle):** After configurable inactivity timeout, HX711 powers down, MCU enters System OFF, IMU stays in ultra-low-power motion detection (~10 µA). A pedal movement wakes the system and it restarts cleanly.
+The BF1K-3AA gauges have 1000Ω resistance each. In a full Wheatstone bridge that draws about **3.3mA** from the 3.3V rail, roughly 3× less than the common 350Ω gauges. Longer battery life, approximately the same measurement accuracy. Easy win.
 
 ---
 
-## Calibration
+## Wiring
 
-Two steps are required:
+```
+HX711 DOUT → XIAO D2
+HX711 SCK  → XIAO D3
+IMU INT1   → XIAO D7   (wake-on-motion)
+```
 
-1. **Zero offset (tare):**  
-   * With the crank unloaded, record the HX711 raw offset.  
-   * This removes drift and ensures 0 Nm torque at rest.  
-
-2. **Scale factor (known weight):**  
-   * Hang a known mass on the pedal at a known crank length.  
-   * Example: 10 kg at 175 mm → Torque = 10 × 9.81 × 0.175 ≈ 17.15 Nm.  
-   * Record HX711 counts and compute the conversion factor (counts → Newtons).  
-
-The firmware includes helper functions to perform both steps.
+The LSM6DS3 IMU is built into the XIAO, no extra chips needed for cadence. Everything runs from the XIAO's onboard 3.3V regulator.
 
 ---
 
-## Limitations / notes
+## Software States
 
-* Single-sided (right crank only) → doubles value to estimate total power. This is good for approximately 95% of the people, dual side crank power meters offer more data (left right crank balance and ±4% more precision) that really only is necessary if you're training for the world top.
-* HX711 is not as precise as commercial solutions, but cheap and works well enough. Same story as above.
-* Firmware currently uses a simple exponential moving average filter; better DSP could improve cadence stability.
+### Active — Riding (~10mA)
+The HX711 fires an interrupt at ~80Hz. Each sample reads torque and gyro, accumulates values over one full crank revolution, then broadcasts power + cadence via BLE. Battery level is checked every 12 seconds and sent to the head unit.
+
+If you're coasting or going too slow (under 25 RPM), those samples get ignored.
+
+### Deep Sleep — Idle (~0.07mA)
+After **60 seconds** of no pedaling the system shuts down completely:
+- HX711 powered off (SCK held high)
+- MCU enters **System OFF** (nRF52 lowest power state)
+- BLE advertising stopped
+- Only the IMU accelerometer stays alive, watching for movement
+
+Any movement wakes it back up. Takes about a second to restart and show up in your head unit again.
 
 ---
 
-## Roadmap / ideas
+## First Startup & Calibration
 
-If the project gets a lot of attention (or if I get bored in the winter), I might try to implement these features
+Calibration data is stored in internal flash and survives restarts, so you only do this once, or after remounting the gauges.
 
-* Add left-right balance (second crank).
-* Switch HX711 to ADS1232/ADS131M for higher resolution.
-* Add ANT+ broadcasting.
-* Smarter filtering for cadence detection.
+Connect using any BLE UART app (I recommend the **Adafruit BluefruitConnect** app). The device advertises as **DIY-Powermeter**.
 
 ---
+
+### Step 1 — Tare (zero the sensor)
+
+Remove any load from the pedal and make sure nothing is pushing on the crank. Keep it still.
+
+Send:
+```
+t
+```
+
+The device averages 200 HX711 samples, saves the zero offset, and also calibrates the gyro bias (so cadence is accurate from zero). This takes about 3 seconds.
+
+---
+
+### Step 2 — Scale Factor (hang a known weight)
+
+Attach a known mass to the pedal hole (through the spindle thread or a loop of cord). Then send:
+
+```
+c          → calibrate with 10kg
+m 7.5      → calibrate with 7.5kg (dumbbell, bucket with water, etc.)
+```
+
+The 'm' command lets you input any weight. So just weigh anything (preferably above 5kg) and calibrate with this value
+
+The device records the HX711 count shift under that load and computes the counts-per-Newton scale factor. Both tare and scale factor are saved to flash automatically.
+
+**That's it.** From now on the meter works on every boot without re-calibrating. If you ever remount the gauges or feel like the readings drifted, just repeat steps 1 and 2. But remember that Garmin also prompts you to tare every now and then, this should prevent the values from drifting.
+
+---
+
+## BLE UART Commands
+
+| Command | What it does |
+|---|---|
+| `i` | Print all available commands |
+| `t` | Tare + gyro bias calibration (crank unloaded, still) |
+| `c` | Calibrate with 10kg reference weight |
+| `m <kg>` | Calibrate with custom mass — e.g. `m 12.5` |
+| `l` | Toggle debug logging on/off (persisted to flash) |
+| `dfu` | Reboot into DFU bootloader for wireless firmware update |
+
+**Logging** spits out cadence, torque, and power after every revolution over UART. Great for debugging, annoying on actual rides. Turn it off once you're happy with it.
+
+### Garmin Zero Offset
+
+Garmin head units have a built-in "Calibrate Power Meter" option in the sensor menu. This sends a BLE Cycling Power Control Point command that triggers an automatic tare, no phone needed while riding. The displayed offset value shows how much drift has accumulated since the last full calibration.
+
+---
+
+## Power Consumption
+
+| State | Current |
+|---|---|
+| Riding (BLE active, HX711 sampling) | ~10 mA |
+| Deep sleep (System OFF, IMU only) | ~0.07 mA |
+
+At 10mA a 300mAh battery gives ~30 hours of riding. In standby it will survive for about 20 weeks realistically. 
+
+---
+
+## Limitations
+
+- **Single-sided** — only left crank measured; power is doubled to estimate total. Assumes left/right balance, which is fine for training.
+- **HX711 ADC** — not the most premium ADC out there, but more than sufficient for DIY. Commercial meters use higher-end 24-bit ADCs with better noise isolation.
+- **No temperature compensation** — the full Wheatstone bridge cancels most thermal drift, but a quick `t` after warmup never hurts on cold days.
+
+---
+
+## License
+
+Open hardware / open source. Build your own, improve it, make it weirder. Just have fun with it.
