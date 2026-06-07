@@ -38,7 +38,7 @@ The final unit draws **~10mA while riding** and **~0.07mA in standby**. The 300m
 | 3D printed enclosure | <img src="images/IMG_2648.jpeg" width="400px"> |
 | 3D printed enclosure | <img src="images/IMG_2649.jpeg" width="400px"> |
 
-Everything — XIAO, HX711, LiPo, and connectors — fits in a small 3D printed box that bolts directly onto the crank arm. I wanted to be able to reach the electronics for testing. But if I were to do it again I would just caulk it on instead of using bolts.
+Everything: XIAO, HX711, LiPo, and connectors, fits in a small 3D printed box that bolts directly onto the crank arm. I wanted to be able to reach the electronics for testing. But if I were to do it again I would just caulk it on instead of using bolts.
 
 ---
 
